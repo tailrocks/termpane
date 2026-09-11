@@ -5,6 +5,12 @@
 //!
 //! Phase 1 of Defect 45. The goal: **zero panics**, ever, on any byte sequence.
 //!
+//! Also asserted for every input: one-shot vs byte-split equality (including
+//! `mid_sequence`), and the serialization round-trip — `state_formatted` at a
+//! deterministic intermediate state and at the final state replays into a
+//! fresh grid with exact `state_eq` reproduction, and `state_diff` between the
+//! two replays transitions between them exactly.
+//!
 //! Run locally (short budget, CI-suitable):
 //!   cargo fuzz run --sanitizer none damage_grid_process -- -max_total_time=60
 //! Run overnight (deep coverage):
@@ -27,6 +33,7 @@ fuzz_target!(|data: &[u8]| {
     assert_eq!(one_shot.alternate_screen(), split.alternate_screen());
     assert_eq!(one_shot.hide_cursor(), split.hide_cursor());
     assert_eq!(one_shot.application_cursor(), split.application_cursor());
+    assert_eq!(one_shot.mid_sequence(), split.mid_sequence());
 
     let (rows, cols) = one_shot.size();
     let (cursor_row, cursor_col) = one_shot.cursor_position();
@@ -45,6 +52,23 @@ fuzz_target!(|data: &[u8]| {
             assert_eq!(attrs(left), attrs(right));
         }
     }
+
+    // Serialization round-trip at a deterministic intermediate state and at
+    // the final state. The intermediate replay also seeds the diff path.
+    let mid = data.len() / 2;
+    let mut pre = DamageGrid::new(24, 80, 10_000);
+    pre.process(&data[..mid]);
+
+    let mut pre_replay = DamageGrid::new(24, 80, 10_000);
+    pre_replay.process(&pre.state_formatted());
+    assert!(pre.state_eq(&pre_replay), "intermediate state_formatted replay");
+
+    let mut replay = DamageGrid::new(24, 80, 10_000);
+    replay.process(&one_shot.state_formatted());
+    assert!(one_shot.state_eq(&replay), "final state_formatted replay");
+
+    pre_replay.process(&one_shot.state_diff(&pre));
+    assert!(one_shot.state_eq(&pre_replay), "state_diff replay");
 });
 
 fn attrs(cell: &Cell) -> (bool, bool, bool, bool) {

@@ -3,7 +3,7 @@
 
 use super::{
     Attrs, Cell, DamageGrid, KITTY_KB_STACK_CAP, PassthroughEvent, RowWrap, ScrollOp, blank_row,
-    make_blank_grid, reconstruct_csi,
+    erase_cells_bce, make_blank_grid, reconstruct_csi, repair_wide_pairs,
 };
 use smallvec::SmallVec;
 // ── vte::Perform implementation ────────────────────────────────────────────
@@ -27,10 +27,13 @@ impl vte::Perform for DamageGrid {
                 self.clear_pending_wrap();
                 self.cursor_col = 0;
             }
-            // BS — backspace.
+            // BS — backspace. At a parked (pending-wrap) cursor the physical
+            // cell is the last column: un-park without stepping further left
+            // (vt100 `col_dec` from the phantom column lands on cols - 1).
             0x08 => {
-                self.clear_pending_wrap();
-                if self.cursor_col > 0 {
+                if self.mode_flags & super::PENDING_WRAP != 0 {
+                    self.clear_pending_wrap();
+                } else if self.cursor_col > 0 {
                     self.cursor_col -= 1;
                 }
             }
@@ -40,7 +43,12 @@ impl vte::Perform for DamageGrid {
                 let next_tab = ((self.cursor_col / 8) + 1) * 8;
                 self.cursor_col = next_tab.min(self.cols.saturating_sub(1));
             }
-            // BEL and other ignored C0 controls.
+            // BEL — emit a typed event for the capsule to forward (or drop).
+            // Never a cell side effect; one event per BEL byte, in byte order.
+            0x07 => {
+                self.passthrough.push(PassthroughEvent::Bell);
+            }
+            // Other C0 controls are ignored.
             _ => {}
         }
     }
@@ -97,6 +105,11 @@ impl vte::Perform for DamageGrid {
                 for cell in row_cells.iter_mut().take((col + n).min(end)).skip(col) {
                     *cell = Cell::default();
                 }
+                if col < end {
+                    // The shift can split a wide-char pair at either boundary;
+                    // blank any orphaned halves it leaves behind.
+                    repair_wide_pairs(row_cells);
+                }
                 self.dirty
                     .mark_range(self.cursor_row, self.cursor_col, self.cols);
             }
@@ -152,11 +165,22 @@ impl vte::Perform for DamageGrid {
                 self.cursor_col = col.min(self.cols.saturating_sub(1));
             }
             // Erase in Display.
-            'J' => {
+            'J' if intermediates.is_empty() => {
+                self.erase_display(p0);
+            }
+            // DECSED (`CSI ? Ps J`) — selective erase. Parity decision:
+            // upstream vt100 has no cell-protection model (its DECSED simply
+            // calls ED), so this parses distinctly but erases identically.
+            'J' if intermediates == b"?" => {
                 self.erase_display(p0);
             }
             // Erase in Line.
-            'K' => {
+            'K' if intermediates.is_empty() => {
+                self.erase_line(p0);
+            }
+            // DECSEL (`CSI ? Ps K`) — selective erase in line; erases
+            // identically to EL (same no-protection-model parity as DECSED).
+            'K' if intermediates == b"?" => {
                 self.erase_line(p0);
             }
             // Insert Lines. Inserted blanks use the DEFAULT background (not BCE).
@@ -224,6 +248,9 @@ impl vte::Perform for DamageGrid {
                 }
                 let tail_start = cols.saturating_sub(n);
                 row_cells[tail_start..cols].fill(Cell::default());
+                // The left shift can split a wide-char pair at the cut or the
+                // tail; blank any orphaned halves it leaves behind.
+                repair_wide_pairs(row_cells);
                 self.dirty
                     .mark_range(self.cursor_row, self.cursor_col, self.cols);
             }
@@ -262,7 +289,8 @@ impl vte::Perform for DamageGrid {
                 let blank = self.blank_cell();
                 let grid = self.active_grid();
                 let end = (col + n).min(grid[row].len());
-                grid[row][col..end].fill(blank);
+                let start = col.min(end);
+                erase_cells_bce(&mut grid[row], start, end, &blank);
                 self.dirty
                     .mark_range(self.cursor_row, self.cursor_col, end as u16);
             }
@@ -319,9 +347,7 @@ impl vte::Perform for DamageGrid {
             // `u` splits by intermediate: bare = DECRC (restore cursor);
             // `>`/`<`/`?` = kitty keyboard protocol, tracked and forwarded.
             'u' if intermediates.is_empty() => {
-                self.cursor_row = self.saved_cursor_row;
-                self.cursor_col = self.saved_cursor_col;
-                self.clamp_cursor();
+                self.restore_saved_cursor();
             }
             // Kitty keyboard push (`\x1b[>{flags}u`): track depth so the
             // capsule's focus-swap restore stays balanced, and forward raw.
@@ -397,15 +423,15 @@ impl vte::Perform for DamageGrid {
                 }
             }
             // DECRQM — request mode (`\x1b[?{mode}$p` / `\x1b[{mode}$p`). Answer
-            // 0 ("mode not recognized") for every mode so the agent renders in
-            // the capsule's baseline: critically this declines mode 2027
-            // (grapheme-cluster width), whose enable would make the agent
+            // Set/Reset for every DEC mode the grid tracks and 0 ("mode not
+            // recognized") for everything else: critically this declines mode
+            // 2027 (grapheme-cluster width), whose enable would make the agent
             // advance columns by grapheme while the grid advances by
             // `unicode_width`, desyncing every wide/combining glyph. `$` marks
             // DECRQM; `!p` (DECSTR soft reset) has no `$` and falls through.
             'p' if intermediates.contains(&b'$') => {
                 let dec = intermediates.contains(&b'?');
-                let status = self.profile.decrqm_status(p0);
+                let status = if dec { self.decrqm_status(p0) } else { 0 };
                 let reply = if dec {
                     format!("\x1b[?{p0};{status}$y")
                 } else {
@@ -431,6 +457,7 @@ impl vte::Perform for DamageGrid {
                 self.mode_flags &= !super::HIDE_CURSOR;
                 self.mode_flags &= !super::APPLICATION_CURSOR;
                 self.mode_flags &= !super::BRACKETED_PASTE;
+                self.last_print = None;
                 self.saved_cursor_row = self.cursor_row;
                 self.saved_cursor_col = self.cursor_col;
             }
@@ -498,12 +525,17 @@ impl vte::Perform for DamageGrid {
                 self.saved_cursor_row = self.cursor_row;
                 self.saved_cursor_col = self.cursor_col;
             }
-            // DECRC — restore cursor.
+            // DECRC — restore cursor (round-trips a parked pending wrap).
             b'8' => {
-                self.clear_pending_wrap();
-                self.cursor_row = self.saved_cursor_row;
-                self.cursor_col = self.saved_cursor_col;
-                self.clamp_cursor();
+                self.restore_saved_cursor();
+            }
+            // DECKPAM / DECKPNM — application / numeric keypad mode. Tracked
+            // so the serializer can round-trip it (`ESC =` / `ESC >`).
+            b'=' => {
+                self.mode_flags |= super::APPLICATION_KEYPAD;
+            }
+            b'>' => {
+                self.mode_flags &= !super::APPLICATION_KEYPAD;
             }
             // RIS — full reset.
             b'c' => {
@@ -516,6 +548,7 @@ impl vte::Perform for DamageGrid {
                 self.cursor_col = 0;
                 self.current_attrs = Attrs::default();
                 self.active_hyperlink = None;
+                self.last_print = None;
                 self.scroll_top = 0;
                 self.scroll_bottom = self.rows.saturating_sub(1);
                 self.reset_modes();

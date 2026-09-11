@@ -13,6 +13,9 @@
 /// These events are the typed output side of the PTY byte parser.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PassthroughEvent {
+    /// BEL (0x07): the program rang the bell. Emitted once per BEL byte, in
+    /// byte order; never a cell side effect.
+    Bell,
     /// OSC 0 / OSC 2: window title change.
     TitleChanged(String),
     /// OSC 1: window icon name change.
@@ -77,6 +80,8 @@ impl PassthroughEvent {
     #[must_use]
     pub fn encode(&self) -> Option<Vec<u8>> {
         match self {
+            // BEL rings the outer terminal's bell.
+            Self::Bell => Some(b"\x07".to_vec()),
             // OSC sequences — use BEL terminator (ST `\x07` is widely supported).
             Self::TitleChanged(title) => Some(format!("\x1b]0;{title}\x07").into_bytes()),
             Self::IconNameChanged(name) => Some(format!("\x1b]1;{name}\x07").into_bytes()),
