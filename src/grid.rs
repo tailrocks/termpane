@@ -1046,7 +1046,11 @@ impl DamageGrid {
     /// 47/1047/1049, 1000/1002/1003, 1004, 1005/1006/1015, 2004, 2026); mode
     /// 2027 keeps the profile-configured reply (declined by default so agents
     /// render with legacy column widths), and everything else is 0.
-    fn decrqm_status(&self, mode: u16) -> u16 {
+    ///
+    /// This is the harness-facing mode-state surface: termlens answers
+    /// `DECRQM`/`DECRPM` from it so applications probing before enabling a
+    /// mode (synchronized output above all) get a truthful reply.
+    pub fn decrqm_status(&self, mode: u16) -> u16 {
         let set = match mode {
             1 => self.mode_flags & APPLICATION_CURSOR != 0,
             7 => self.mode_flags & NO_AUTOWRAP == 0,
