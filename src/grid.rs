@@ -7,6 +7,8 @@
 mod midseq;
 #[path = "grid/parse.rs"]
 mod parse;
+#[path = "grid/serialize.rs"]
+mod serialize;
 #[path = "grid/write.rs"]
 mod write;
 
@@ -1371,9 +1373,14 @@ impl DamageGrid {
         }
         if self.cursor_row == row as u16
             && ((self.mode_flags & PENDING_WRAP != 0) || self.cursor_col >= self.cols)
-            && col as u16 == self.cols.saturating_sub(1)
+            && col as u16 + new_width >= self.cols
             && new_width > old_width
         {
+            // The cluster grew to (or past) the right margin — including the
+            // case where a wide continuation pushed the end from the last
+            // column to the phantom column. Arm the deferred wrap so the next
+            // printable wraps (a cluster that merely sits at the margin with
+            // the cursor already past it must not swallow it).
             self.cursor_col = self.cols;
             self.mode_flags |= PENDING_WRAP;
         }
