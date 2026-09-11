@@ -966,7 +966,7 @@ fn dump_dirty_patch_tracks_changed_cell_span() {
 // ── Resize equivalence oracle (plan 040) ────────────────────────────────────
 //
 // `naive_resize` is a verbatim copy of the pre-rewrite `resize_grid` body
-// (crates/jackin-term/src/grid/write.rs), transcribed here BEFORE the
+// (src/grid/write.rs), transcribed here BEFORE the
 // production in-place rewrite so it stands as an independent reference. Every
 // resize path (same/grow/shrink on rows and cols, including 1x1 and wide-cell
 // truncation at the new right edge) is asserted to produce byte-identical

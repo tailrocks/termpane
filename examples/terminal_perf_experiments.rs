@@ -1,22 +1,22 @@
 // SPDX-FileCopyrightText: 2026 Alexey Zhokhov
 // SPDX-License-Identifier: Apache-2.0
 
-//! Headless Defect 52 terminal performance experiment runner.
+//! Headless terminal performance experiment runner.
 //!
-//! This does not replace the Defect 54 live capsule smoke ledger. It captures
-//! machine-doable measurements from the owned jackin-term grid, emits governed
-//! measurement events, and prints an invocation id for correlating the headless
-//! part of Experiments 1-4.
+//! Captures machine-doable measurements from the termpane grid, appends them
+//! as JSONL run-log events under `target/termpane-perf-runs/`, and prints a
+//! run id for correlating the headless experiments.
 
 use std::{
+    fs::File,
+    io::Write as _,
+    path::{Path, PathBuf},
     process::Command,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use jackin_core::JackinPaths;
-use jackin_diagnostics::RunDiagnostics;
-use jackin_term::{DamageGrid, GridPatch};
 use serde_json::json;
+use termpane::{DamageGrid, GridPatch};
 
 const ROWS: u16 = 40;
 const COLS: u16 = 120;
@@ -32,12 +32,55 @@ struct Dataset {
 struct Measurement {
     dataset: &'static str,
     frames: usize,
-    jackin_dirty_p99_us: u128,
-    jackin_full_dump_p99_us: u128,
-    jackin_text_dump_p99_us: u128,
-    jackin_changed_cells_total: usize,
-    jackin_patch_bytes_estimate: usize,
-    jackin_text_bytes_total: usize,
+    termpane_dirty_p99_us: u128,
+    termpane_full_dump_p99_us: u128,
+    termpane_text_dump_p99_us: u128,
+    termpane_changed_cells_total: usize,
+    termpane_patch_bytes_estimate: usize,
+    termpane_text_bytes_total: usize,
+}
+
+/// Minimal JSONL run log: one `{"run_id", "kind", "message"}` object per line
+/// in `<root>/<run_id>.jsonl`, mirroring the monorepo diagnostics event shape.
+#[derive(Debug)]
+struct RunLog {
+    run_id: String,
+    file: File,
+}
+
+impl RunLog {
+    fn start(root: &Path, command: &str) -> std::io::Result<Self> {
+        std::fs::create_dir_all(root)?;
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        let run_id = format!("run-{nanos:x}-{}", std::process::id());
+        let path: PathBuf = root.join(format!("{run_id}.jsonl"));
+        let mut log = Self {
+            run_id,
+            file: File::create(path)?,
+        };
+        log.compact("run", &format!("command {command} started"));
+        Ok(log)
+    }
+
+    fn compact(&mut self, kind: &str, message: &str) {
+        let line = json!({
+            "run_id": self.run_id,
+            "kind": kind,
+            "message": message,
+        });
+        // Best-effort measurement log: a failed write must not abort the run.
+        let _ignored = writeln!(self.file, "{line}");
+    }
+
+    fn emit_run_summary(&mut self) {
+        self.compact("run_summary", "run finished");
+    }
+
+    fn run_id(&self) -> &str {
+        &self.run_id
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -155,42 +198,42 @@ fn sample_process() -> ProcessSample {
 fn measure_dataset(dataset: &Dataset) -> Measurement {
     let mut grid = DamageGrid::new(ROWS, COLS, SCROLLBACK);
 
-    let mut jackin_dirty = Vec::with_capacity(dataset.frames.len());
-    let mut jackin_full = Vec::with_capacity(dataset.frames.len());
-    let mut jackin_text_dump = Vec::with_capacity(dataset.frames.len());
-    let mut jackin_changed_cells_total = 0usize;
-    let mut jackin_patch_bytes_estimate = 0usize;
-    let mut jackin_text_bytes_total = 0usize;
+    let mut termpane_dirty = Vec::with_capacity(dataset.frames.len());
+    let mut termpane_full = Vec::with_capacity(dataset.frames.len());
+    let mut termpane_text_dump = Vec::with_capacity(dataset.frames.len());
+    let mut termpane_changed_cells_total = 0usize;
+    let mut termpane_patch_bytes_estimate = 0usize;
+    let mut termpane_text_bytes_total = 0usize;
 
     for frame in &dataset.frames {
         let start = Instant::now();
         grid.process(frame);
         let patch = grid.dump_dirty_patch();
-        jackin_dirty.push(start.elapsed());
-        jackin_changed_cells_total += patch_changed_cells(&patch);
-        jackin_patch_bytes_estimate += patch_bytes_estimate(&patch);
+        termpane_dirty.push(start.elapsed());
+        termpane_changed_cells_total += patch_changed_cells(&patch);
+        termpane_patch_bytes_estimate += patch_bytes_estimate(&patch);
 
         let start = Instant::now();
         let snapshot = grid.dump();
         std::hint::black_box(snapshot);
-        jackin_full.push(start.elapsed());
+        termpane_full.push(start.elapsed());
 
         let start = Instant::now();
         let contents = grid.dump().to_text();
-        jackin_text_bytes_total += contents.len();
+        termpane_text_bytes_total += contents.len();
         std::hint::black_box(contents);
-        jackin_text_dump.push(start.elapsed());
+        termpane_text_dump.push(start.elapsed());
     }
 
     Measurement {
         dataset: dataset.name,
         frames: dataset.frames.len(),
-        jackin_dirty_p99_us: percentile_us(&jackin_dirty, 99),
-        jackin_full_dump_p99_us: percentile_us(&jackin_full, 99),
-        jackin_text_dump_p99_us: percentile_us(&jackin_text_dump, 99),
-        jackin_changed_cells_total,
-        jackin_patch_bytes_estimate,
-        jackin_text_bytes_total,
+        termpane_dirty_p99_us: percentile_us(&termpane_dirty, 99),
+        termpane_full_dump_p99_us: percentile_us(&termpane_full, 99),
+        termpane_text_dump_p99_us: percentile_us(&termpane_text_dump, 99),
+        termpane_changed_cells_total,
+        termpane_patch_bytes_estimate,
+        termpane_text_bytes_total,
     }
 }
 
@@ -235,12 +278,12 @@ fn measurement_json(measurement: &Measurement) -> serde_json::Value {
     json!({
         "dataset": measurement.dataset,
         "frames": measurement.frames,
-        "jackin_dirty_p99_us": measurement.jackin_dirty_p99_us,
-        "jackin_full_dump_p99_us": measurement.jackin_full_dump_p99_us,
-        "jackin_text_dump_p99_us": measurement.jackin_text_dump_p99_us,
-        "jackin_changed_cells_total": measurement.jackin_changed_cells_total,
-        "jackin_patch_bytes_estimate": measurement.jackin_patch_bytes_estimate,
-        "jackin_text_bytes_total": measurement.jackin_text_bytes_total,
+        "termpane_dirty_p99_us": measurement.termpane_dirty_p99_us,
+        "termpane_full_dump_p99_us": measurement.termpane_full_dump_p99_us,
+        "termpane_text_dump_p99_us": measurement.termpane_text_dump_p99_us,
+        "termpane_changed_cells_total": measurement.termpane_changed_cells_total,
+        "termpane_patch_bytes_estimate": measurement.termpane_patch_bytes_estimate,
+        "termpane_text_bytes_total": measurement.termpane_text_bytes_total,
     })
 }
 
@@ -249,15 +292,8 @@ fn measurement_json(measurement: &Measurement) -> serde_json::Value {
     reason = "example runner must print the invocation id for checklist evidence"
 )]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let root = std::env::current_dir()?.join("target/jackin-term-perf-runs");
-    let paths = JackinPaths::for_tests(&root);
-    let run = RunDiagnostics::start(
-        &paths,
-        false,
-        "jackin-term-perf-experiments",
-        jackin_diagnostics::ServiceIdentity::HOST_ONE_SHOT,
-    )?;
-    let _guard = run.activate();
+    let root = std::env::current_dir()?.join("target/termpane-perf-runs");
+    let mut run = RunLog::start(&root, "termpane-perf-experiments")?;
 
     let datasets = [
         seq_dataset(),

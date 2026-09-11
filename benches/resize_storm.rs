@@ -17,12 +17,12 @@
 //! does not read it.
 //!
 //! ```sh
-//! cargo bench --bench resize_storm -p jackin-term -- --quick
+//! cargo bench --bench resize_storm -p termpane -- --quick
 //! ```
 
 use criterion::{BatchSize, Criterion};
-use jackin_term::DamageGrid;
 use std::hint::black_box;
+use termpane::DamageGrid;
 
 const ROWS: u16 = 40;
 const COLS: u16 = 120;

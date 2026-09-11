@@ -10,12 +10,12 @@
 //! change can be compared against a recorded baseline.
 //!
 //! ```sh
-//! cargo bench -p jackin-term --bench scroll_throughput
+//! cargo bench -p termpane --bench scroll_throughput
 //! ```
 
 use criterion::Criterion;
-use jackin_term::DamageGrid;
 use std::hint::black_box;
+use termpane::DamageGrid;
 
 const ROWS: u16 = 40;
 const COLS: u16 = 120;

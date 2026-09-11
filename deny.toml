@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: 2026 Alexey Zhokhov
+# SPDX-License-Identifier: Apache-2.0
+
+[advisories]
+yanked = "deny"
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "MIT",
+]
+confidence-threshold = 0.8
+# Per-crate exceptions for licenses outside the Apache-2.0/MIT policy that the
+# dependency tree already carries.
+exceptions = [
+    { crate = "memchr", allow = ["Unlicense", "MIT"] },
+]
+
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "deny"
+wildcards = "deny"
+deny = [
+    { crate = "openssl", reason = "Prefer rustls/aws-lc-rs-backed TLS." },
+    { crate = "yaml-rust", reason = "Use serde_yaml_ng for YAML parsing." },
+]
+# Duplicate-version detection is enforced. The skip list is the current
+# transitive duplicate allowlist; new duplicates must either be resolved
+# or added here with rationale.
+skip = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

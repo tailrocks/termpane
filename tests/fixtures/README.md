@@ -1,4 +1,4 @@
-# Corpus Fixtures — jackin-term Conformance Harness
+# Corpus Fixtures — termpane Conformance Harness
 
 Each file in the subdirectories below is a raw byte sequence fed to the conformance harness
 (`tests/conformance.rs`). The harness feeds identical bytes to `DamageGrid` in one chunk and

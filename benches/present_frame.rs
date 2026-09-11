@@ -5,17 +5,17 @@
 //!
 //! Run timing:
 //! ```sh
-//! cargo bench -p jackin-term --bench present_frame
+//! cargo bench -p termpane --bench present_frame
 //! ```
 //!
 //! Run heap profiling:
 //! ```sh
-//! cargo bench -p jackin-term --bench present_frame --features dhat-heap
+//! cargo bench -p termpane --bench present_frame --features dhat-heap
 //! ```
 
 use criterion::{BatchSize, Criterion};
-use jackin_term::{DamageGrid, DirtySpans};
 use std::hint::black_box;
+use termpane::{DamageGrid, DirtySpans};
 
 #[cfg(feature = "dhat-heap")]
 #[global_allocator]
@@ -61,7 +61,7 @@ fn bench_present_frame(c: &mut Criterion) {
     let mut group = c.benchmark_group("present_frame");
     group.sample_size(20);
 
-    group.bench_function("jackin_term_process_update_and_dump", |b| {
+    group.bench_function("termpane_process_update_and_dump", |b| {
         b.iter_batched(
             seeded_damage_grid,
             |mut grid| {
@@ -73,7 +73,7 @@ fn bench_present_frame(c: &mut Criterion) {
         );
     });
 
-    group.bench_function("jackin_term_process_update_and_dirty_spans", |b| {
+    group.bench_function("termpane_process_update_and_dirty_spans", |b| {
         b.iter_batched(
             seeded_damage_grid,
             |mut grid| {
@@ -84,7 +84,7 @@ fn bench_present_frame(c: &mut Criterion) {
         );
     });
 
-    group.bench_function("jackin_term_process_update_and_text_dump", |b| {
+    group.bench_function("termpane_process_update_and_text_dump", |b| {
         b.iter_batched(
             seeded_damage_grid,
             |mut grid| {

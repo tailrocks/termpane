@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Alexey Zhokhov
 // SPDX-License-Identifier: Apache-2.0
 
-//! Fuzz target: feed arbitrary bytes to jackin-term.
+//! Fuzz target: feed arbitrary bytes to termpane.
 //!
 //! Phase 1 of Defect 45. The goal: **zero panics**, ever, on any byte sequence.
 //!
@@ -11,7 +11,7 @@
 //!   cargo fuzz run --sanitizer none damage_grid_process -- -max_total_time=86400
 
 #![no_main]
-use jackin_term::{Cell, Color, DamageGrid};
+use termpane::{Cell, Color, DamageGrid};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {

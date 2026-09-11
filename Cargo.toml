@@ -2,53 +2,54 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [package]
-name = "jackin-term"
+name = "termpane"
 version = "0.6.4"
-edition.workspace = true
-rust-version.workspace = true
+edition = "2024"
+rust-version = "1.97"
 authors = ["Alexey Zhokhov <alexey@zhokhov.com>"]
-description = "Owned terminal model for the jackin-capsule re-emitting PTY multiplexer. See README.md."
-license.workspace = true
-publish = false
+description = "Deterministic terminal screen-state emulator: a VT-parsed cell grid with typed attributes, scrollback, snapshots, and damage tracking."
+license = "Apache-2.0"
+repository = "https://github.com/tailrocks/termpane"
+homepage = "https://github.com/tailrocks/termpane"
+keywords = ["terminal", "vt100", "ansi", "emulator", "screen"]
 
-# jackin-term: owned terminal model for the jackin-capsule re-emitting PTY multiplexer.
+# termpane: deterministic terminal screen-state emulator.
 #
-# See crates/jackin-term/README.md for the full engineering rationale.
-# Implements the Capsule terminal model.
+# See README.md for the full engineering rationale.
+# Implements a vte-parsed DamageGrid with snapshots and damage tracking.
 
-repository.workspace = true
+[workspace]
+resolver = "3"
 
 [features]
 default = []
-# Enables the DHAT allocator in `benches/present_frame.rs` so the focused-pane
-# present-frame allocation axis can be profiled with:
-#   cargo bench -p jackin-term --bench present_frame --features dhat-heap
+# Enables the DHAT allocator in `benches/present_frame.rs` so the present-frame
+# allocation axis can be profiled with:
+#   cargo bench --bench present_frame --features dhat-heap
 dhat-heap = []
 
 [lib]
-name = "jackin_term"
+name = "termpane"
 path = "src/lib.rs"
 
 [dependencies]
 # vte: the canonical VT/ANSI parser. Never rebuilt — depend always.
 # This is the "parse" layer in our vte → DamageGrid → PassthroughEvents → WireDiff pipeline.
-vte = { workspace = true }
+vte = "0.15"
 
-unicode-width = { workspace = true }
+unicode-width = "0.2"
 
 # Phase 4: inline storage for grapheme clusters (≤24 bytes = no heap alloc for ASCII + most Unicode).
-# Eliminates the per-cell `String` alloc storm in the focused-pane render path.
+# Eliminates the per-cell `String` alloc storm in the render path.
 # canonical, actively maintained, >10M downloads. MIT/Apache-2.0.
-compact_str = { workspace = true }
-smallvec = { workspace = true }
+compact_str = "0.10"
+smallvec = "1.15"
 
 [dev-dependencies]
-criterion = { workspace = true, features = ["html_reports"] }
-dhat = { workspace = true }
-jackin-core = { workspace = true }
-jackin-diagnostics = { workspace = true }
-ratatui-core = { workspace = true }
-serde_json = { workspace = true }
+criterion = { version = "=0.8.2", features = ["html_reports"] }
+dhat = "=0.3.3"
+ratatui-core = "=0.1.2"
+serde_json = "=1.0.151"
 
 [[bench]]
 name = "present_frame"
@@ -68,3 +69,134 @@ workspace = true
 [[bench]]
 name = "preserve_scrollback"
 harness = false
+
+[workspace.lints.rust]
+rust_2024_compatibility = { level = "deny", priority = -1 }
+future_incompatible = { level = "deny", priority = -1 }
+rust_2018_idioms = { level = "deny", priority = -1 }
+nonstandard_style = { level = "deny", priority = -1 }
+unused = { level = "deny", priority = -1 }
+unused_imports = "deny"
+unused_variables = "deny"
+unused_must_use = "deny"
+dead_code = "deny"
+unreachable_pub = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+unsafe_attr_outside_unsafe = "deny"
+missing_unsafe_on_extern = "deny"
+never_type_fallback_flowing_into_unsafe = "deny"
+unsafe_code = "forbid"
+unused_qualifications = "deny"
+unused_lifetimes = "deny"
+redundant_lifetimes = "deny"
+trivial_casts = "deny"
+trivial_numeric_casts = "deny"
+unnameable_types = "deny"
+unit_bindings = "deny"
+macro_use_extern_crate = "deny"
+meta_variable_misuse = "deny"
+single_use_lifetimes = "deny"
+let_underscore_drop = "deny"
+missing_debug_implementations = "deny"
+async_fn_in_trait = "allow"
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+private_intra_doc_links = "warn"
+redundant_explicit_links = "warn"
+unescaped_backticks = "warn"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+# Bare-allow floor is 0 (ratchet bare-allow-per-crate); deny allows without reason.
+# Prefer #[expect] so suppressions self-retire when the lint stops firing
+# (census: docs/content/reference/developer-reference/lint-policy.mdx).
+allow_attributes_without_reason = "deny"
+allow_attributes = "deny"
+dbg_macro = "deny"
+let_underscore_future = "deny"
+let_underscore_must_use = "deny"
+unused_result_ok = "deny"
+assertions_on_result_states = "deny"
+await_holding_lock = "deny"
+await_holding_refcell_ref = "deny"
+mod_module_files = "deny"
+todo = "deny"
+unimplemented = "deny"
+undocumented_unsafe_blocks = "deny"
+multiple_unsafe_ops_per_block = "deny"
+mem_forget = "deny"
+disallowed_methods = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+exit = "warn"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+manual_assert = "deny"
+manual_let_else = "warn"
+match_bool = "warn"
+# allow census: docs/content/reference/developer-reference/lint-policy.mdx
+needless_pass_by_value = "allow"
+trivially_copy_pass_by_ref = "warn"
+large_enum_variant = "warn"
+large_futures = "allow"
+result_large_err = "warn"
+clone_on_ref_ptr = "warn"
+rc_buffer = "warn"
+str_to_string = "warn"
+return_self_not_must_use = "warn"
+redundant_feature_names = "allow"
+struct_excessive_bools = "warn"
+fn_params_excessive_bools = "warn"
+too_many_lines = "warn"
+cognitive_complexity = "warn"
+excessive_nesting = "warn"
+implicit_hasher = "allow"
+similar_names = "allow"
+assigning_clones = "allow"
+match_same_arms = "allow"
+drop_non_drop = "allow"
+format_push_string = "allow"
+no_effect_underscore_binding = "allow"
+items_after_statements = "allow"
+unnecessary_wraps = "allow"
+# promoted 2026-07-12 after residual fix (0 hits).
+unused_self = "warn"
+option_option = "allow"
+verbose_bit_mask = "allow"
+unreadable_literal = "allow"
+unnecessary_debug_formatting = "allow"
+# promoted 2026-07-12 after residual fix (0 hits).
+unused_async = "warn"
+float_cmp = "deny"
+struct_field_names = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+module_name_repetitions = "allow"
+future_not_send = "allow"
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_sign_loss = "deny"
+cast_precision_loss = "allow"
+float_cmp_const = "deny"
+lossy_float_literal = "deny"
+invalid_upcast_comparisons = "deny"
+expl_impl_clone_on_copy = "deny"
+iter_not_returning_iterator = "deny"
+infallible_try_from = "deny"
+rc_mutex = "deny"
+debug_assert_with_mut_call = "deny"
+cargo_common_metadata = "allow"
+multiple_crate_versions = "allow"
+
+[profile.dev]
+# Line tables only: ~30-50% smaller artifacts, faster link, stack traces still work.
+debug = 1
+
+[profile.release]
+lto = "thin"
+strip = "symbols"

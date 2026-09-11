@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Alexey Zhokhov
 // SPDX-License-Identifier: Apache-2.0
 
-//! Conformance replay harness for jackin-term.
+//! Conformance replay harness for termpane.
 //!
-//! Feeds committed byte streams to `jackin_term::DamageGrid` and asserts the
+//! Feeds committed byte streams to `termpane::DamageGrid` and asserts the
 //! owned parser/grid stay panic-free, geometrically valid, and deterministic
 //! across one-shot vs byte-split processing.
 //!
@@ -23,7 +23,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use jackin_term::{Cell, Color, DamageGrid};
+use termpane::{Cell, Color, DamageGrid};
 
 // ---------------------------------------------------------------------------
 // Neutral color type for snapshots
@@ -324,7 +324,7 @@ fn sanity_scrollback() {
 
 #[test]
 fn sanity_dec_private_modes() {
-    // Mouse reporting enable/disable (modes jackin❯ uses).
+    // Mouse reporting enable/disable (modes a terminal multiplexer uses).
     let seq =
         b"\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h\x1b[?1003l\x1b[?1006l\x1b[?1002l\x1b[?1000l";
     run_conformance(24, 80, seq, "DEC mouse mode enable/disable");

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [package]
-name = "jackin-term-fuzz"
+name = "termpane-fuzz"
 version = "0.0.0"
 publish = false
 edition = "2021"
@@ -13,7 +13,7 @@ cargo-fuzz = true
 [workspace]
 
 [dependencies]
-jackin-term = { path = ".." }
+termpane = { path = ".." }
 libfuzzer-sys = "0.4"
 
 [[bin]]

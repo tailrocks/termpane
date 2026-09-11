@@ -1,4 +1,4 @@
-//! jackin-term: terminal emulator grid, parser, and damage tracking.
+//! termpane: terminal emulator grid, parser, and damage tracking.
 //!
 //! **Architecture Invariant:** T0.
 //! Entry point: [`DamageGrid`] — terminal grid with damage tracking.

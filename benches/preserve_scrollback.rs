@@ -4,13 +4,13 @@
 //! unchanged/dedupe short-circuit).
 //!
 //! ```sh
-//! cargo bench -p jackin-term --bench preserve_scrollback -- --test
+//! cargo bench -p termpane --bench preserve_scrollback -- --test
 //! ```
 
 use std::hint::black_box;
 
 use criterion::Criterion;
-use jackin_term::DamageGrid;
+use termpane::DamageGrid;
 
 const ROWS: u16 = 40;
 const COLS: u16 = 120;

@@ -3,7 +3,7 @@
 
 //! Stable virtual-terminal display-width contract.
 //!
-//! This module is the `jackin-term` authority for agent-visible cell width.
+//! This module is the `termpane` authority for agent-visible cell width.
 //! Ratatui may be cross-checked in tests, but it is not a runtime dependency of
 //! the terminal model.
 
@@ -193,7 +193,7 @@ impl VirtualTerminalProfile {
     }
 }
 
-/// Width of one accepted cluster in the jackin❯ virtual terminal profile.
+/// Width of one accepted cluster in the virtual terminal profile.
 #[must_use]
 pub fn display_width(cluster: &str) -> u16 {
     if cluster.is_empty() {
