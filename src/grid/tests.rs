@@ -1521,3 +1521,100 @@ fn ich_dch_repair_split_wide_pairs() {
         "content shifted left by the delete"
     );
 }
+
+// ── mid_sequence ─────────────────────────────────────────────────────────────
+
+#[test]
+fn mid_sequence_tracks_unfinished_csi() {
+    let mut g = DamageGrid::new(3, 8, 10);
+    g.process(b"text");
+    assert!(!g.mid_sequence(), "plain text ends at ground");
+    g.process(b"\x1b[3");
+    assert!(g.mid_sequence(), "CSI without a final byte is mid-sequence");
+    g.process(b"1m");
+    assert!(!g.mid_sequence(), "the final byte completes the sequence");
+}
+
+#[test]
+fn mid_sequence_tracks_split_esc_and_strings() {
+    let mut g = DamageGrid::new(3, 8, 10);
+    g.process(b"\x1b");
+    assert!(g.mid_sequence());
+    g.process(b"[?7l");
+    assert!(!g.mid_sequence());
+
+    // OSC split across chunks; BEL terminates.
+    g.process(b"\x1b]8;id=1;https://example.");
+    assert!(g.mid_sequence(), "OSC without a terminator is mid-sequence");
+    g.process(b"test\x07");
+    assert!(!g.mid_sequence());
+
+    // OSC terminated by ST (ESC \\).
+    g.process(b"\x1b]0;title");
+    assert!(g.mid_sequence());
+    g.process(b"\x1b");
+    assert!(g.mid_sequence(), "OSC stays open across the ST escape");
+    g.process(b"\\");
+    assert!(!g.mid_sequence(), "ST closes the OSC");
+}
+
+#[test]
+fn mid_sequence_tracks_dcs_and_abort_controls() {
+    let mut g = DamageGrid::new(3, 8, 10);
+    g.process(b"\x1bP1;2|payload");
+    assert!(g.mid_sequence(), "DCS without ST is mid-sequence");
+    g.process(b"\x1b\\");
+    assert!(!g.mid_sequence(), "ST terminates DCS");
+
+    // CAN aborts an open CSI.
+    g.process(b"\x1b[1;2\x18");
+    assert!(!g.mid_sequence(), "CAN aborts the sequence to ground");
+
+    // An ESC-intermediate sequence: `ESC ( 0` dispatches to ground.
+    g.process(b"\x1b(");
+    assert!(g.mid_sequence());
+    g.process(b"0");
+    assert!(!g.mid_sequence(), "ESC ( 0 is a complete escape dispatch");
+}
+
+#[test]
+fn mid_sequence_tracks_incomplete_utf8() {
+    let mut g = DamageGrid::new(3, 8, 10);
+    g.process("aé".as_bytes());
+    assert!(!g.mid_sequence());
+    g.process(&[0xe4, 0xbd]); // 界 missing its last byte
+    assert!(g.mid_sequence(), "a buffered UTF-8 tail is mid-sequence");
+    g.process(&[0xa0]);
+    assert!(
+        !g.mid_sequence(),
+        "the completed codepoint drains the buffer"
+    );
+}
+
+#[test]
+fn mid_sequence_agrees_between_one_shot_and_split() {
+    let streams: &[&[u8]] = &[
+        b"plain",
+        b"\x1b[1;31mred\x1b[0m",
+        b"\x1b[?2026h...\x1b[?2026l",
+        b"\x1b]8;;https://example.test\x07link",
+        b"\x1bPq1;2;3\x1b\\",
+        "a界\u{200d}b\u{301}".as_bytes(),
+        b"\x1b[3",
+        b"\x1b]52;c;SGVsb",
+        &[0xe4, 0xbd],
+    ];
+    for stream in streams {
+        let mut one_shot = DamageGrid::new(4, 10, 10);
+        one_shot.process(stream);
+        let mut split = DamageGrid::new(4, 10, 10);
+        for byte in *stream {
+            split.process(std::slice::from_ref(byte));
+        }
+        assert_eq!(
+            one_shot.mid_sequence(),
+            split.mid_sequence(),
+            "one-shot vs split disagree for {stream:?}"
+        );
+    }
+}

@@ -3,6 +3,8 @@
 
 //! `DamageGrid` — the Phase 2 v0 terminal model implementation.
 
+#[path = "grid/midseq.rs"]
+mod midseq;
 #[path = "grid/parse.rs"]
 mod parse;
 #[path = "grid/write.rs"]
@@ -122,6 +124,9 @@ pub struct DamageGrid {
     // sequences split across PTY read() boundaries to be silently dropped.
     parser: vte::Parser,
     pending_utf8: Vec<u8>,
+    /// Ground-state tracker mirroring the parser's sequence state; feeds on
+    /// the same bytes in `advance_parser`. Backs [`DamageGrid::mid_sequence`].
+    seq_state: midseq::SeqState,
     profile: VirtualTerminalProfile,
 
     // ── Grid state ────────────────────────────────────────────────────────────
@@ -537,6 +542,7 @@ impl DamageGrid {
         Self {
             parser: vte::Parser::new(),
             pending_utf8: Vec::new(),
+            seq_state: midseq::SeqState::default(),
             profile,
             rows,
             cols,
@@ -609,6 +615,9 @@ impl DamageGrid {
     }
 
     fn advance_parser(&mut self, bytes: &[u8]) {
+        // The ground-state tracker observes the same bytes as the parser, in
+        // the same order, so one-shot and byte-split feeds always agree.
+        self.seq_state.advance_bytes(bytes);
         // SAFETY: we need a mutable reference to both self.parser and self (which
         // implements vte::Perform). The parser only reads `bytes`; it calls self
         // through &mut dyn Perform. Rust's borrow rules prevent this directly,
@@ -1014,6 +1023,20 @@ impl DamageGrid {
     /// The SGR attributes applied to newly written cells.
     pub fn current_attrs(&self) -> &Attrs {
         &self.current_attrs
+    }
+
+    /// True when the last `process` call ended inside an unfinished escape
+    /// sequence or with an incomplete UTF-8 codepoint buffered.
+    ///
+    /// vte 0.15 does not expose its parser state, so this is backed by a
+    /// conservative ground-state tracker observing the same bytes
+    /// (`src/grid/midseq.rs`): it reports `true` whenever the parser could be
+    /// mid-sequence (ESC/CSI awaiting a final byte, or an
+    /// OSC/DCS/SOS/PM/APC string awaiting ST or BEL), plus whenever an
+    /// incomplete UTF-8 tail is buffered. Useful for harnesses that want to
+    /// know whether more input is expected to complete a sequence.
+    pub fn mid_sequence(&self) -> bool {
+        !self.pending_utf8.is_empty() || !self.seq_state.is_ground()
     }
 
     /// DECRQM status for a DEC private mode: 1 = set, 2 = reset, 0 = not
