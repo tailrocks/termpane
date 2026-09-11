@@ -985,6 +985,13 @@ fn naive_resize(grid: &RowStore, rows: u16, cols: u16) -> RowStore {
                 new[r][c] = cell.clone();
             }
         }
+        // Truncation can drop a wide char's continuation cell; blank the
+        // orphaned lead left behind in the new last column.
+        if let Some(last) = new[r].last_mut()
+            && last.is_wide
+        {
+            *last = Cell::default();
+        }
     }
     new
 }
@@ -1152,4 +1159,365 @@ fn osc8_same_id_same_uri_shares_token() {
     // One (id,uri) key → one token → one target entry.
     assert_eq!(g.osc8_id_to_token.len(), 1);
     assert_eq!(g.hyperlink_targets.len(), 1);
+}
+
+// ── v0.7.0 parity: DECAWM, DECSED/DECSEL, bell, ?12, 2026, DECRQM ───────────
+//
+// Unit pins for the vt100-fork parity behaviors. The byte-level scenarios
+// mirror tui-snap's `tool_qualification.rs` pins; termpane reports the RAW
+// cursor (phantom column == cols while a wrap is pending), where tui-snap's
+// fork clamps the reported position to cols - 1.
+
+#[test]
+fn decawm_off_overwrites_last_cell_then_can_be_reenabled() {
+    // tui-snap scenario (a): `\x1b[?7l\x1b[1;8HABC\x1b[?7hDE` on 8x3.
+    let mut g = DamageGrid::new(3, 8, 10);
+    g.process(b"\x1b[?7l\x1b[1;8HABC\x1b[?7hDE");
+    assert!(g.autowrap(), "?7h re-enabled DECAWM");
+    assert_eq!(
+        cell_text(&g, 0, 7),
+        "C",
+        "wrap-off overwrites the last cell"
+    );
+    assert_eq!(
+        cell_text(&g, 1, 0),
+        "D",
+        "re-enabled wrap fires on the next printable"
+    );
+    assert_eq!(cell_text(&g, 1, 1), "E");
+}
+
+#[test]
+fn decawm_off_suppresses_wide_glyph_at_margin() {
+    // tui-snap scenario (b): a wide glyph that cannot fit is suppressed
+    // outright — no write, no shift of the previous cell.
+    let mut g = DamageGrid::new(3, 8, 10);
+    g.process("\x1b[?7l\x1b[2;8H界".as_bytes());
+    for col in 0..8 {
+        assert_eq!(cell_text(&g, 1, col), "", "row stays blank: col {col}");
+    }
+    assert_eq!(
+        g.cursor_position(),
+        (1, 7),
+        "cursor is unmoved by the suppressed glyph"
+    );
+}
+
+#[test]
+fn decawm_off_wide_glyph_fits_when_two_columns_remain() {
+    let mut g = DamageGrid::new(3, 8, 10);
+    g.process("\x1b[?7l\x1b[2;7H界".as_bytes());
+    assert_eq!(cell_text(&g, 1, 6), "界");
+    let (rows, _) = g.size();
+    let view = g.scrollback_view(0, rows);
+    assert!(
+        view.cell(1, 7).expect("continuation").is_wide_continuation,
+        "wide continuation written when the glyph fits"
+    );
+    assert_eq!(g.cursor_position(), (1, 8), "parked after the wide glyph");
+}
+
+#[test]
+fn decawm_right_margin_pending_wrap_pinned_semantics() {
+    // tui-snap scenario (c), both modes. termpane reports the raw cursor:
+    // the parked column reads (0, 8) — the phantom — in both modes.
+    for mode in [b"\x1b[?7l".as_slice(), b"\x1b[?7h".as_slice()] {
+        let wrap_on = mode.ends_with(b"h");
+        let mut bytes = mode.to_vec();
+        bytes.extend_from_slice(b"\x1b[1;8HA");
+        let mut g = DamageGrid::new(3, 8, 10);
+        g.process(&bytes);
+        assert_eq!(g.cursor_position(), (0, 8), "parked at the phantom column");
+        bytes.extend_from_slice("\u{301}".as_bytes());
+        let mut g = DamageGrid::new(3, 8, 10);
+        g.process(&bytes);
+        assert_eq!(cell_text(&g, 0, 7), "A\u{301}", "combining mark lands on A");
+        bytes.push(b'B');
+        let mut g = DamageGrid::new(3, 8, 10);
+        g.process(&bytes);
+        if wrap_on {
+            assert_eq!(
+                cell_text(&g, 1, 0),
+                "B",
+                "wrap-on performs the deferred wrap"
+            );
+            assert_eq!(g.cursor_position(), (1, 1));
+        } else {
+            assert_eq!(
+                cell_text(&g, 0, 7),
+                "B",
+                "wrap-off overwrites the last cell"
+            );
+            assert_eq!(
+                g.cursor_position(),
+                (0, 8),
+                "wrap-off keeps the parked column (never wraps)"
+            );
+        }
+    }
+}
+
+#[test]
+fn decawm_off_survives_byte_split_and_reenable_restores_wrap() {
+    // Scenario (a) fed one chunk at a time: mode toggles and the parked wrap
+    // must survive `process` call boundaries.
+    let mut g = DamageGrid::new(3, 8, 10);
+    g.process(b"\x1b[?7l");
+    assert!(!g.autowrap());
+    g.process(b"\x1b[1;8HAB");
+    g.process(b"C");
+    assert_eq!(cell_text(&g, 0, 7), "C");
+    g.process(b"\x1b[?7h");
+    assert!(g.autowrap(), "re-enabling DECAWM restores normal wrap");
+    g.process(b"D");
+    assert_eq!(
+        cell_text(&g, 1, 0),
+        "D",
+        "the deferred wrap fires once re-enabled"
+    );
+}
+
+#[test]
+fn ris_resets_decawm_keypad_and_tracked_modes() {
+    let mut g = DamageGrid::new(3, 8, 10);
+    g.process(b"\x1b[?7l\x1b=\x1b[?12h\x1b[?2026h");
+    assert!(!g.autowrap() && g.application_keypad());
+    assert_eq!(g.text_cursor_enable(), Some(true));
+    assert!(g.in_synchronized_update());
+    g.process(b"\x1bc");
+    assert!(g.autowrap(), "RIS restores DECAWM (wrap on)");
+    assert!(!g.application_keypad(), "RIS resets application keypad");
+    assert_eq!(
+        g.text_cursor_enable(),
+        None,
+        "RIS returns ?12 to the tri-state default"
+    );
+    assert!(
+        !g.in_synchronized_update(),
+        "RIS ends a synchronized update"
+    );
+}
+
+#[test]
+fn application_keypad_tracks_deckpam_deckpnm() {
+    let mut g = DamageGrid::new(3, 8, 10);
+    assert!(!g.application_keypad());
+    g.process(b"\x1b=");
+    assert!(
+        g.application_keypad(),
+        "ESC = (DECKPAM) enables application keypad"
+    );
+    g.process(b"\x1b>");
+    assert!(!g.application_keypad(), "ESC > (DECKPNM) disables it");
+}
+
+#[test]
+fn text_cursor_enable_is_tri_state() {
+    let mut g = DamageGrid::new(3, 8, 10);
+    assert_eq!(
+        g.text_cursor_enable(),
+        None,
+        "never set: callers fall back to DECSCUSR"
+    );
+    g.process(b"\x1b[?12h");
+    assert_eq!(g.text_cursor_enable(), Some(true));
+    g.process(b"\x1b[?12l");
+    assert_eq!(g.text_cursor_enable(), Some(false));
+}
+
+#[test]
+fn synchronized_update_mode_tracks() {
+    let mut g = DamageGrid::new(3, 8, 10);
+    assert!(!g.in_synchronized_update());
+    g.process(b"\x1b[?2026h");
+    assert!(g.in_synchronized_update());
+    g.process(b"\x1b[?2026l");
+    assert!(!g.in_synchronized_update());
+    assert!(
+        g.drain_passthrough().is_empty(),
+        "?2026 toggles produce no passthrough events"
+    );
+}
+
+#[test]
+fn decrqm_reports_set_and_reset_for_tracked_modes() {
+    const MODES: &[u8] =
+        b"\x1b[?7l\x1b[?25l\x1b[?1h\x1b[?12h\x1b[?1002h\x1b[?1006h\x1b[?2004h\x1b[?2026h\x1b[?1049h";
+    for (mode, status) in [
+        (1, 1),    // application cursor on
+        (7, 2),    // DECAWM off
+        (12, 1),   // text cursor enable on
+        (25, 2),   // cursor hidden
+        (1049, 1), // alt screen active
+        (47, 1),   // alt screen (any of 47/1047/1049 reports it)
+        (1000, 2),
+        (1002, 1),
+        (1003, 2),
+        (1004, 2),
+        (1005, 2),
+        (1006, 1),
+        (1015, 2),
+        (2004, 1),
+        (2026, 1),
+        (2027, 0), // grapheme width stays unrecognized
+        (9999, 0), // untracked
+    ] {
+        let mut q = DamageGrid::new(4, 20, 10);
+        // Replay the same modes, then query.
+        q.process(MODES);
+        q.process(format!("\x1b[?{mode}$p").as_bytes());
+        let expected = format!("\x1b[?{mode};{status}$y");
+        assert_eq!(
+            replies(&mut q),
+            vec![expected.into_bytes()],
+            "DECRQM ?{mode}"
+        );
+    }
+}
+
+#[test]
+fn decrqm_ansi_mode_query_is_not_recognized() {
+    let mut g = DamageGrid::new(4, 20, 10);
+    g.process(b"\x1b[4$p"); // IRM insert mode — untracked ANSI mode
+    assert_eq!(replies(&mut g), vec![b"\x1b[4;0$y".to_vec()]);
+}
+
+#[test]
+fn bel_emits_typed_event_without_cell_side_effects() {
+    let mut g = DamageGrid::new(3, 8, 10);
+    g.process(b"a\x07b\x07\x07");
+    assert_eq!(cell_text(&g, 0, 0), "a");
+    assert_eq!(cell_text(&g, 0, 1), "b");
+    let events = g.drain_passthrough();
+    let bells = events
+        .iter()
+        .filter(|e| matches!(e, PassthroughEvent::Bell))
+        .count();
+    assert_eq!(bells, 3, "one Bell event per BEL byte");
+    assert_eq!(
+        PassthroughEvent::Bell.encode(),
+        Some(b"\x07".to_vec()),
+        "Bell encodes to the BEL byte for outer-terminal forwarding"
+    );
+}
+
+#[test]
+fn decsed_decsel_parse_distinctly_and_erase_like_ed_el() {
+    let mut g = DamageGrid::new(4, 8, 10);
+    g.process(b"\x1b[1;1HAB\x1b[2;1HCD\x1b[1;2H");
+    g.process(b"\x1b[?K"); // DECSEL 0: erase to end of line
+    assert_eq!(cell_text(&g, 0, 0), "A");
+    assert_eq!(cell_text(&g, 0, 1), "", "DECSEL erased from the cursor");
+    g.process(b"\x1b[?2J"); // DECSED 2: erase whole display
+    assert_eq!(cell_text(&g, 0, 0), "");
+    assert_eq!(cell_text(&g, 1, 0), "", "DECSED erased the display");
+    // Neither surfaces as a dropped/unhandled CSI.
+    assert!(
+        g.drain_passthrough().is_empty(),
+        "DECSED/DECSEL are handled in-grid"
+    );
+}
+
+#[test]
+fn zwj_continuation_breaks_after_a_cursor_move() {
+    // The cluster-continuation barrier: a ZWJ-final cell only continues when
+    // the next printable is written immediately after it.
+    let mut adjacent = DamageGrid::new(3, 8, 10);
+    adjacent.process("a\u{200d}b".as_bytes());
+    assert_eq!(
+        cell_text(&adjacent, 0, 0),
+        "a\u{200d}b",
+        "adjacent prints join"
+    );
+
+    let mut moved = DamageGrid::new(3, 8, 10);
+    moved.process("\x1b[1;2Hb\x1b[1;1Ha\u{200d}\x1b[1;2Hc".as_bytes());
+    assert_eq!(cell_text(&moved, 0, 0), "a\u{200d}");
+    assert_eq!(
+        cell_text(&moved, 0, 1),
+        "c",
+        "a cursor move breaks the ZWJ continuation"
+    );
+}
+
+#[test]
+fn decrc_restores_pending_wrap_phantom() {
+    let mut g = DamageGrid::new(3, 8, 10);
+    g.process(b"\x1b[1;8HA\x1b7"); // A at the last col parks; DECSC saves it
+    g.process(b"\x1b[1;1H"); // move away (cancels the pending wrap)
+    g.process(b"\x1b8"); // DECRC restores the parked column
+    assert_eq!(
+        g.cursor_position(),
+        (0, 8),
+        "DECRC restores the phantom column"
+    );
+    g.process(b"B"); // the restored pending wrap fires
+    assert_eq!(cell_text(&g, 1, 0), "B");
+}
+
+#[test]
+fn backspace_at_phantom_unparks_without_double_step() {
+    let mut g = DamageGrid::new(3, 8, 10);
+    g.process(b"\x1b[1;8HA\x08B");
+    assert_eq!(cell_text(&g, 0, 7), "B", "BS un-parks to the last column");
+    assert_eq!(g.cursor_position(), (0, 8), "the overwrite re-parks");
+}
+
+#[test]
+fn erase_ops_blank_split_wide_partners() {
+    // EL0 starting on a continuation blanks its lead (left of the erase).
+    let mut g = DamageGrid::new(3, 8, 10);
+    g.process("a界b".as_bytes());
+    g.process(b"\x1b[1;3H\x1b[K"); // cursor on the continuation; erase to EOL
+    assert_eq!(cell_text(&g, 0, 0), "a", "cell left of the split survives");
+    assert_eq!(
+        cell_text(&g, 0, 1),
+        "",
+        "lead blanked with its continuation"
+    );
+
+    // ECH covering a lead blanks its continuation (right of the erase).
+    let mut g = DamageGrid::new(3, 8, 10);
+    g.process("\x1b[1;1H界xy".as_bytes());
+    g.process(b"\x1b[1;1H\x1b[X");
+    let (rows, _) = g.size();
+    let view = g.scrollback_view(0, rows);
+    assert_eq!(cell_text(&g, 0, 0), "");
+    assert!(
+        !view.cell(0, 1).expect("cell").is_wide_continuation,
+        "continuation blanked with its lead"
+    );
+    assert_eq!(cell_text(&g, 0, 2), "x", "cell right of the erase survives");
+
+    // EL1 through a wide lead blanks its continuation.
+    let mut g = DamageGrid::new(3, 8, 10);
+    g.process("\x1b[1;1H界xy".as_bytes());
+    g.process(b"\x1b[1;1H\x1b[1K");
+    assert_eq!(cell_text(&g, 0, 1), "", "orphaned continuation blanked");
+}
+
+#[test]
+fn ich_dch_repair_split_wide_pairs() {
+    // ICH inserting between a wide lead and its continuation blanks the lead.
+    let mut g = DamageGrid::new(3, 8, 10);
+    g.process("\x1b[1;1H界ab".as_bytes());
+    g.process(b"\x1b[1;2H\x1b[@");
+    assert_eq!(cell_text(&g, 0, 0), "", "split lead blanked by ICH");
+    assert_eq!(cell_text(&g, 0, 3), "a");
+
+    // DCH deleting a lead blanks its continuation.
+    let mut g = DamageGrid::new(3, 8, 10);
+    g.process("\x1b[1;1H界ab".as_bytes());
+    g.process(b"\x1b[1;1H\x1b[P");
+    let (rows, _) = g.size();
+    let view = g.scrollback_view(0, rows);
+    assert!(
+        !view.cell(0, 0).expect("cell").is_wide_continuation,
+        "orphaned continuation repaired by DCH"
+    );
+    assert_eq!(
+        cell_text(&g, 0, 1),
+        "a",
+        "content shifted left by the delete"
+    );
 }

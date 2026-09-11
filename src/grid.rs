@@ -103,13 +103,16 @@ pub enum MouseProtocolEncoding {
 /// Call `process(bytes)` to feed raw PTY output.  The grid records which
 /// spans changed via the dirty tracker.  Call `dirty_spans()` to retrieve
 /// and clear the dirty set before rendering.
-const ALT_SCREEN: u8 = 1 << 0;
-const HIDE_CURSOR: u8 = 1 << 1;
-const BRACKETED_PASTE: u8 = 1 << 2;
-const APPLICATION_CURSOR: u8 = 1 << 3;
-const FOCUS_EVENTS: u8 = 1 << 4;
-const PENDING_WRAP: u8 = 1 << 5;
-const MUTATED_SINCE_PRESERVE: u8 = 1 << 6;
+const ALT_SCREEN: u16 = 1 << 0;
+const HIDE_CURSOR: u16 = 1 << 1;
+const BRACKETED_PASTE: u16 = 1 << 2;
+const APPLICATION_CURSOR: u16 = 1 << 3;
+const FOCUS_EVENTS: u16 = 1 << 4;
+const PENDING_WRAP: u16 = 1 << 5;
+const MUTATED_SINCE_PRESERVE: u16 = 1 << 6;
+const NO_AUTOWRAP: u16 = 1 << 7;
+const APPLICATION_KEYPAD: u16 = 1 << 8;
+const SYNCHRONIZED_UPDATE: u16 = 1 << 9;
 
 /// Owned terminal grid with damage tracking and PTY parser state.
 pub struct DamageGrid {
@@ -148,6 +151,15 @@ pub struct DamageGrid {
     /// DECSCUSR cursor style (`CSI {n} SP q`): 0 = default. Reconciled to the
     /// outer terminal per frame by the capsule encoder; never forwarded raw.
     cursor_style: u16,
+    /// DEC mode 12 (AT&T 610 text cursor enable/blink). Tri-state: `None`
+    /// until the program sets or resets it, so callers can fall back to the
+    /// DECSCUSR style for the blink decision (xterm semantics).
+    text_cursor_enable: Option<bool>,
+    /// Position immediately after the last printed glyph — the only place a
+    /// following printable may extend a ZWJ cluster. `None` once any cursor
+    /// op intervened, so a cursor move breaks cluster continuation (the
+    /// serializer relies on this to replay cells exactly).
+    last_print: Option<(u16, u16)>,
     /// The exact rows the last preserve pushed, for byte-equality dedupe.
     last_preserved_block: Option<Vec<Vec<Cell>>>,
     /// Active OSC 8 token while writing cells.
@@ -161,8 +173,9 @@ pub struct DamageGrid {
     /// Next hyperlink token to allocate.
     next_hyperlink_token: u32,
     /// `mode_flags` bundles the mode bools (`alt_screen`, `hide_cursor`, `bracketed_paste`,
-    /// `application_cursor`, `focus_events`, `pending_wrap`, `mutated_since_preserve`).
-    mode_flags: u8,
+    /// `application_cursor`, `focus_events`, `pending_wrap`, `mutated_since_preserve`,
+    /// `no_autowrap` (DECAWM off), `application_keypad`, `synchronized_update` (DEC 2026)).
+    mode_flags: u16,
 
     // ── Reported default colors (OSC 10/11 query replies) ────────────────────
     /// Foreground/background RGB the grid reports when the program queries
@@ -226,6 +239,28 @@ impl std::fmt::Debug for DamageGrid {
 /// looping `\x1b[>1u` would otherwise grow `kitty_kb_stack` without bound;
 /// 64 is well past any real terminal program's nested keymap-mode depth.
 const KITTY_KB_STACK_CAP: usize = 64;
+
+/// DEC mode number for a mouse protocol mode (1000/1002/1003; 0 = None).
+/// The alias variants normalize to the mode they alias.
+pub(crate) fn mouse_mode_number(mode: MouseProtocolMode) -> u16 {
+    match mode {
+        MouseProtocolMode::None => 0,
+        MouseProtocolMode::Press => 1000,
+        MouseProtocolMode::PressRelease | MouseProtocolMode::ButtonMotion => 1002,
+        MouseProtocolMode::AnyEvent | MouseProtocolMode::AnyMotion => 1003,
+    }
+}
+
+/// DEC mode number for a mouse protocol encoding (1005/1006/1015; 0 = the
+/// default X10-style encoding).
+pub(crate) fn mouse_encoding_number(encoding: MouseProtocolEncoding) -> u16 {
+    match encoding {
+        MouseProtocolEncoding::Default => 0,
+        MouseProtocolEncoding::Utf8 => 1005,
+        MouseProtocolEncoding::Sgr => 1006,
+        MouseProtocolEncoding::Urxvt => 1015,
+    }
+}
 
 /// Upper bound on retained OSC 8 hyperlink mappings. OSC content is untrusted
 /// model output; an agent emitting many distinct `id=` hyperlinks would
@@ -372,6 +407,13 @@ impl RowStore {
         if width_changed {
             for row in &mut self.rows {
                 row.resize(target_cols, Cell::default());
+                // Truncation can drop a wide char's continuation cell; blank
+                // the orphaned lead left behind in the new last column.
+                if let Some(last) = row.last_mut()
+                    && last.is_wide
+                {
+                    *last = Cell::default();
+                }
             }
         }
 
@@ -514,6 +556,8 @@ impl DamageGrid {
             mouse_mode: MouseProtocolMode::None,
             mouse_encoding: MouseProtocolEncoding::Default,
             cursor_style: 0,
+            text_cursor_enable: None,
+            last_print: None,
             last_preserved_block: None,
             active_hyperlink_token: 0,
             osc8_id_to_token: HashMap::new(),
@@ -847,6 +891,16 @@ impl DamageGrid {
     }
 
     /// Cursor position `(row, col)`.
+    ///
+    /// While a deferred DECAWM wrap is pending (a printable was written into
+    /// the last column and no further printable or cursor move has arrived
+    /// yet), the returned column is the *phantom* column `== cols` — one past
+    /// the rightmost addressable cell. This is parser state, not a physical
+    /// off-screen cursor: the terminal's visible cursor still rests on the
+    /// last column. Harness adapters that need a physical cell coordinate
+    /// (rendering a cursor sprite, hit-testing) should clamp with
+    /// `col.min(cols - 1)`; harnesses that replay or diff parser state (the
+    /// serializer, byte-split equivalence checks) must use the raw value.
     pub fn cursor_position(&self) -> (u16, u16) {
         (self.cursor_row, self.cursor_col)
     }
@@ -928,6 +982,67 @@ impl DamageGrid {
         self.mode_flags & FOCUS_EVENTS != 0
     }
 
+    /// Whether auto-wrap (DECAWM, DEC 7) is enabled — the power-on default.
+    ///
+    /// With `?7l` active this returns `false`: writes at the right margin
+    /// overwrite the last cell instead of wrapping, and a wide glyph that
+    /// cannot fit is suppressed.
+    pub fn autowrap(&self) -> bool {
+        self.mode_flags & NO_AUTOWRAP == 0
+    }
+
+    /// Whether application keypad mode is enabled (DECKPAM, `ESC =`).
+    pub fn application_keypad(&self) -> bool {
+        self.mode_flags & APPLICATION_KEYPAD != 0
+    }
+
+    /// DEC mode 12 (AT&T 610 text cursor enable/blink) as a tri-state:
+    /// `None` until the program sets or resets it, so callers can fall back
+    /// to the DECSCUSR [`cursor_style`](Self::cursor_style) for the blink
+    /// decision (xterm semantics).
+    pub fn text_cursor_enable(&self) -> Option<bool> {
+        self.text_cursor_enable
+    }
+
+    /// Whether the program has bracketed output in a synchronized update
+    /// (DEC 2026, `?2026h`). Tracked for the capsule's frame scheduler; the
+    /// grid itself keeps painting eagerly either way.
+    pub fn in_synchronized_update(&self) -> bool {
+        self.mode_flags & SYNCHRONIZED_UPDATE != 0
+    }
+
+    /// The SGR attributes applied to newly written cells.
+    pub fn current_attrs(&self) -> &Attrs {
+        &self.current_attrs
+    }
+
+    /// DECRQM status for a DEC private mode: 1 = set, 2 = reset, 0 = not
+    /// recognized. Answers for every mode the grid tracks (1, 7, 12, 25,
+    /// 47/1047/1049, 1000/1002/1003, 1004, 1005/1006/1015, 2004, 2026); mode
+    /// 2027 keeps the profile-configured reply (declined by default so agents
+    /// render with legacy column widths), and everything else is 0.
+    fn decrqm_status(&self, mode: u16) -> u16 {
+        let set = match mode {
+            1 => self.mode_flags & APPLICATION_CURSOR != 0,
+            7 => self.mode_flags & NO_AUTOWRAP == 0,
+            12 => self.text_cursor_enable.unwrap_or(false),
+            25 => self.mode_flags & HIDE_CURSOR == 0,
+            47 | 1047 | 1049 => self.mode_flags & ALT_SCREEN != 0,
+            1000 => mouse_mode_number(self.mouse_mode) == 1000,
+            1002 => mouse_mode_number(self.mouse_mode) == 1002,
+            1003 => mouse_mode_number(self.mouse_mode) == 1003,
+            1004 => self.mode_flags & FOCUS_EVENTS != 0,
+            1005 => mouse_encoding_number(self.mouse_encoding) == 1005,
+            1006 => mouse_encoding_number(self.mouse_encoding) == 1006,
+            1015 => mouse_encoding_number(self.mouse_encoding) == 1015,
+            2004 => self.mode_flags & BRACKETED_PASTE != 0,
+            2026 => self.mode_flags & SYNCHRONIZED_UPDATE != 0,
+            2027 => return self.profile.decrqm_status(mode),
+            _ => return 0,
+        };
+        if set { 1 } else { 2 }
+    }
+
     /// Reset the poll-based terminal modes to their power-on defaults.
     ///
     /// RIS (`ESC c`) is a full power-on reset; without this the cursor could
@@ -941,6 +1056,10 @@ impl DamageGrid {
         self.mode_flags &= !BRACKETED_PASTE;
         self.mode_flags &= !APPLICATION_CURSOR;
         self.mode_flags &= !FOCUS_EVENTS;
+        self.mode_flags &= !NO_AUTOWRAP;
+        self.mode_flags &= !APPLICATION_KEYPAD;
+        self.mode_flags &= !SYNCHRONIZED_UPDATE;
+        self.text_cursor_enable = None;
         self.scrollback_offset = 0;
         self.clear_active_hyperlink_state();
         self.clear_hyperlink_maps();
@@ -1054,11 +1173,25 @@ impl DamageGrid {
 
         // DECAWM deferred wrap: a previous last-column write parked here. Now
         // that a new printable (not a cluster continuation) has arrived,
-        // perform the wrap before writing.
-        if self.mode_flags & PENDING_WRAP != 0 {
+        // perform the wrap before writing. With DECAWM off (`?7l`) the parked
+        // column is NOT a deferred wrap — the glyph overwrites the last cell.
+        if self.mode_flags & PENDING_WRAP != 0 && self.mode_flags & NO_AUTOWRAP == 0 {
             self.mode_flags &= !PENDING_WRAP;
             self.cursor_col = 0;
             self.newline_action_with_wrap(RowWrap::Soft);
+        }
+        if self.mode_flags & NO_AUTOWRAP != 0 {
+            // DECAWM off (`?7l`): clamp to the rightmost column and never wrap.
+            // A wide glyph that cannot fit is suppressed outright — no write,
+            // no shift of the previous cell (xterm/vt100-fork semantics). The
+            // pending column is kept for width-0 combining marks (handled by
+            // `append_to_previous_cluster` above).
+            self.mode_flags &= !PENDING_WRAP;
+            let col = self.cursor_col.min(self.cols.saturating_sub(1));
+            if width > self.cols.saturating_sub(col) {
+                return;
+            }
+            self.cursor_col = col;
         }
         if self.cursor_row >= self.rows || self.cursor_col >= self.cols {
             return;
@@ -1069,8 +1202,9 @@ impl DamageGrid {
         // Erase any prior wide char that would be partially overwritten —
         // in both directions: writing over a continuation blanks its lead,
         // and writing over a lead blanks its orphaned continuation.
-        let mut dirty_start = self.cursor_col;
-        let mut dirty_end = self.cursor_col.saturating_add(width);
+        let cursor_col = self.cursor_col;
+        let mut dirty_start = cursor_col;
+        let mut dirty_end = cursor_col.saturating_add(width);
         {
             let grid = self.active_grid();
             if col < grid[row].len() && grid[row][col].is_wide_continuation && col > 0 {
@@ -1083,7 +1217,17 @@ impl DamageGrid {
                 && col + 1 < grid[row].len()
             {
                 grid[row][col + 1] = Cell::default();
-                dirty_end = dirty_end.max(self.cursor_col.saturating_add(2));
+                dirty_end = dirty_end.max(cursor_col.saturating_add(2));
+            }
+            if width > 1
+                && col + 1 < grid[row].len()
+                && grid[row][col + 1].is_wide
+                && col + 2 < grid[row].len()
+            {
+                // The new continuation cell overwrites a wide lead; blank its
+                // now-orphaned continuation one cell further right.
+                grid[row][col + 2] = Cell::default();
+                dirty_end = dirty_end.max(cursor_col.saturating_add(3));
             }
         }
 
@@ -1123,10 +1267,13 @@ impl DamageGrid {
             // the phantom column (== cols, matching DEC autowrap semantics)
             // and arm pending_wrap; the next printable performs the wrap, and
             // any explicit cursor move cancels it. Eager wrapping here is what
-            // drifted the cursor one row down per border line.
+            // drifted the cursor one row down per border line. With DECAWM off
+            // (`?7l`) the parked column is still reached but is NOT a deferred
+            // wrap: the next printable overwrites the last cell instead.
             self.cursor_col = self.cols;
             self.mode_flags |= PENDING_WRAP;
         }
+        self.last_print = Some((self.cursor_row, self.cursor_col));
     }
 
     /// Join `ch` to the cluster in the previously written cell when it is
@@ -1134,6 +1281,16 @@ impl DamageGrid {
     /// Returns true when the character was absorbed.
     fn append_to_previous_cluster(&mut self, ch: char, width: u16) -> bool {
         let zero_width = width == 0;
+        if !zero_width && self.last_print != Some((self.cursor_row, self.cursor_col)) {
+            // A cursor operation intervened since the last print: a
+            // positive-width glyph starts a new cell even when the cell to the
+            // left ends with a ZWJ. Cluster continuation across a ZWJ only
+            // applies to immediately adjacent prints — matching
+            // xterm/vt100-fork behavior and keeping every grid state
+            // reproducible by a left-to-right byte replay (the serializer
+            // relies on this).
+            return false;
+        }
         let target_col = if (self.mode_flags & PENDING_WRAP != 0) || self.cursor_col >= self.cols {
             self.cols.saturating_sub(1)
         } else if self.cursor_col > 0 {
@@ -1200,6 +1357,10 @@ impl DamageGrid {
         let mark_start = col as u16;
         let mark_end = mark_start.saturating_add(old_width.max(new_width).max(1));
         self.dirty.mark_range(self.cursor_row, mark_start, mark_end);
+        // Re-arm the cluster-continuation barrier: a successful join keeps the
+        // cursor at (or recomputes it to) the cluster end, where a following
+        // ZWJ/printable may continue the same cluster.
+        self.last_print = Some((self.cursor_row, self.cursor_col));
         true
     }
 
@@ -1370,9 +1531,11 @@ impl DamageGrid {
     /// Cancel a deferred (DECAWM) wrap. Any explicit cursor move clears the
     /// pending state, and un-parks the cursor from the phantom column (== cols)
     /// back into the addressable range so the subsequent move computes from a
-    /// valid column.
+    /// valid column. Also breaks cluster continuation: a cursor move means the
+    /// next printable starts a new cell even after a ZWJ-final cluster.
     fn clear_pending_wrap(&mut self) {
         self.mode_flags &= !PENDING_WRAP;
+        self.last_print = None;
         if self.cursor_col >= self.cols {
             self.cursor_col = self.cols.saturating_sub(1);
         }
@@ -1381,6 +1544,22 @@ impl DamageGrid {
     fn clamp_cursor(&mut self) {
         self.cursor_row = self.cursor_row.min(self.rows.saturating_sub(1));
         self.cursor_col = self.cursor_col.min(self.cols.saturating_sub(1));
+    }
+
+    /// Restore the DECSC/ANSI.SYS-saved cursor. A saved phantom column
+    /// (== cols) restores the pending-wrap state as well: DECSC/DECRC
+    /// round-trip the deferred wrap, matching xterm — the serializer's
+    /// cursor-restore relies on this.
+    fn restore_saved_cursor(&mut self) {
+        self.mode_flags &= !PENDING_WRAP;
+        self.last_print = None;
+        self.cursor_row = self.saved_cursor_row;
+        self.cursor_col = self.saved_cursor_col;
+        self.clamp_cursor();
+        if self.saved_cursor_col >= self.cols {
+            self.cursor_col = self.cols;
+            self.mode_flags |= PENDING_WRAP;
+        }
     }
 
     fn add_cursor_offset(position: u16, offset: u16, max: u16) -> u16 {
@@ -1415,11 +1594,12 @@ impl DamageGrid {
             let grid = self.active_grid();
             match mode {
                 0 => {
-                    grid[row][col..cols].fill(blank);
+                    erase_cells_bce(&mut grid[row], col, cols, &blank);
                     self.dirty.mark_range(cursor_row, self.cursor_col, cols_u16);
                 }
                 1 => {
-                    grid[row][0..=col.min(cols - 1)].fill(blank);
+                    let end = col.min(cols - 1) + 1;
+                    erase_cells_bce(&mut grid[row], 0, end, &blank);
                     self.dirty
                         .mark_range(cursor_row, 0, self.cursor_col.saturating_add(1));
                 }
@@ -1449,7 +1629,7 @@ impl DamageGrid {
                 }
                 let blank_row = self.blank_row_bce();
                 let grid = self.active_grid();
-                grid[cursor_row][cursor_col..cols_usize].fill(blank);
+                erase_cells_bce(&mut grid[cursor_row], cursor_col, cols_usize, &blank);
                 for row in grid.iter_mut().take(rows).skip(cursor_row + 1) {
                     row.clone_from(&blank_row);
                 }
@@ -1460,7 +1640,8 @@ impl DamageGrid {
                 for row in grid.iter_mut().take(cursor_row) {
                     row.clone_from(&blank_row);
                 }
-                grid[cursor_row][0..=cursor_col.min(cols_usize - 1)].fill(blank);
+                let end = cursor_col.min(cols_usize - 1) + 1;
+                erase_cells_bce(&mut grid[cursor_row], 0, end, &blank);
             }
             2 => {
                 // ED2 clears the whole visible display; preserve those rows
@@ -1716,6 +1897,23 @@ impl DamageGrid {
 
     fn set_dec_mode(&mut self, mode: u16, enabled: bool) {
         match mode {
+            // DECAWM — auto-wrap. `?7h` (default) wraps at the right margin via
+            // the deferred pending-wrap; `?7l` clamps writes to the last
+            // column and suppresses wide glyphs that do not fit.
+            7 => {
+                if enabled {
+                    self.mode_flags &= !NO_AUTOWRAP;
+                } else {
+                    self.mode_flags |= NO_AUTOWRAP;
+                }
+            }
+            // Text cursor enable/blink (AT&T 610, xterm `?12`). Tri-state:
+            // tracked only once the program touches it; `None` before that so
+            // callers fall back to the DECSCUSR cursor style for the blink
+            // decision.
+            12 => {
+                self.text_cursor_enable = Some(enabled);
+            }
             // Show/hide cursor. DECTCEM: ?25h (enabled) = visible (clear hide flag);
             // ?25l (disabled) = hidden (set hide flag).
             25 => {
@@ -1760,6 +1958,9 @@ impl DamageGrid {
             // Mode 1049: save cursor before entering alt screen, restore after leaving.
             47 | 1047 => self.set_alt_screen(enabled),
             1049 => {
+                // The 1049 enter/exit moves the cursor (home on enter, saved
+                // cursor on exit): break cluster continuation.
+                self.last_print = None;
                 if enabled {
                     self.saved_cursor_row = self.cursor_row;
                     self.saved_cursor_col = self.cursor_col;
@@ -1829,8 +2030,18 @@ impl DamageGrid {
                     MouseProtocolEncoding::Default
                 };
             }
-            // Synchronized output (?2026) and other unhandled private modes:
-            // absorbed. The capsule's own frame brackets supersede the agent's.
+            // Synchronized output (DEC 2026): tracked so the capsule can align
+            // frame presentation with the program's update brackets and so
+            // DECRQM answers truthfully. The grid itself keeps painting
+            // eagerly — damage batching is the capsule encoder's business.
+            2026 => {
+                if enabled {
+                    self.mode_flags |= SYNCHRONIZED_UPDATE;
+                } else {
+                    self.mode_flags &= !SYNCHRONIZED_UPDATE;
+                }
+            }
+            // Other unhandled private modes: absorbed.
             _ => {}
         }
     }

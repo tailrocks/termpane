@@ -24,6 +24,9 @@ pub fn set_cell_width(row: &mut [Cell], col: usize, width: u16, attrs: Attrs, co
 
     if col + 1 < cols && col + 1 < row.len() {
         if width > 1 {
+            // The new continuation overwrites the cell at `col + 1`; if that
+            // was a wide lead, blank its now-orphaned continuation at `col + 2`.
+            let orphan = row[col + 1].is_wide && col + 2 < cols && col + 2 < row.len();
             let hyperlink = row[col].hyperlink.clone();
             let hyperlink_id = row[col].hyperlink_id;
             row[col + 1] = Cell {
@@ -34,8 +37,47 @@ pub fn set_cell_width(row: &mut [Cell], col: usize, width: u16, attrs: Attrs, co
                 hyperlink_id,
                 hyperlink,
             };
+            if orphan {
+                row[col + 2] = Cell::default();
+            }
         } else if row[col + 1].is_wide_continuation {
             row[col + 1] = Cell::default();
+        }
+    }
+}
+
+/// Erase `row[start..end]` with a (possibly BCE-colored) blank, also blanking
+/// a wide-char partner split by the erase boundary: a continuation at `start`
+/// orphans its lead at `start - 1`, and a wide lead at `end - 1` orphans its
+/// continuation at `end`. Keeps the pair invariant — a wide lead is always
+/// paired with its continuation and vice versa — across erase ops, so any
+/// grid state stays reproducible by a byte replay (vt100 `Row::erase`
+/// parity).
+pub fn erase_cells_bce(row: &mut [Cell], start: usize, end: usize, blank: &Cell) {
+    let split_lead = start > 0 && row.get(start).is_some_and(|c| c.is_wide_continuation);
+    let split_continuation =
+        end > start && end < row.len() && row.get(end - 1).is_some_and(|c| c.is_wide);
+    row[start..end].fill(blank.clone());
+    if split_lead {
+        row[start - 1] = blank.clone();
+    }
+    if split_continuation {
+        row[end] = blank.clone();
+    }
+}
+
+/// Repair wide-char pairs after an in-row cell shift (ICH/DCH): blank a wide
+/// lead whose continuation was shifted away, and a continuation whose lead was
+/// shifted away. Post-shift, a wide lead in the last column is always orphaned
+/// (its continuation fell off the row) and is blanked as well. Blanks are
+/// default cells, matching the non-BCE semantics of ICH/DCH.
+pub fn repair_wide_pairs(row: &mut [Cell]) {
+    let cols = row.len();
+    for i in 0..cols {
+        let orphan_continuation = row[i].is_wide_continuation && (i == 0 || !row[i - 1].is_wide);
+        let orphan_lead = row[i].is_wide && (i + 1 >= cols || !row[i + 1].is_wide_continuation);
+        if orphan_continuation || orphan_lead {
+            row[i] = Cell::default();
         }
     }
 }
