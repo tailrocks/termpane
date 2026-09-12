@@ -2,14 +2,50 @@
 
 Each file in the subdirectories below is a raw byte sequence fed to the conformance harness
 (`tests/conformance.rs`). The harness feeds identical bytes to `DamageGrid` in one chunk and
-byte-by-byte, then asserts identical final grids (cells, attrs, cursor, alt-screen flag).
+byte-by-byte, then asserts identical final grids (cells, full attrs, cursor, alt-screen flag,
+and tracked DEC modes — see Oracle coverage below).
 
 ## Format
 
 - `.bin` — raw bytes (binary PTY capture)
-- `.vt` — VT/ANSI escape sequences in a text-safe encoding (LF-delimited hex `\xNN` for
-  non-printable bytes, printable ASCII/UTF-8 inline)
+- `.vt` — VT/ANSI escape sequences in a text-safe encoding: LF-delimited lines,
+  kebab-case filenames, geometry-safe at 24x80, `\xNN` hex escapes for non-printable
+  bytes (e.g. `\x1b` for ESC, `\x07` for BEL), printable ASCII/UTF-8 inline
+  (CJK `界` stays inline UTF-8)
 - `.cast` — asciinema v2 JSONL; the harness replays every output (`"o"`) event
+
+## Parity follow-up fixtures (0.7.0)
+
+| Fixture | Concern |
+|---|---|
+| `basic/decawm-off-overwrite.vt` | `?7l` + `1;80HABC` overwrite at the clamped right column, plus a `?7h` re-enable variant line |
+| `wide_chars/decawm-off-wide-suppress.vt` | `?7l` + `2;80H界` suppressed wide glyph (no fit), plus fit-control `2;79H界` |
+| `basic/decsed-decsel.vt` | Text + `?K` / `?2J` plain-erase parity, plus invalid `?5J` / `?5K` / `5J` / `5K` (silent-swallow; correctness pinned by unit test, harness asserts determinism only) |
+| `basic/bell.vt` | `a BEL b BEL BEL` — Bell is passthrough-only, no cell side effect |
+| `basic/text-cursor-enable.vt` | `?12h X ?12l Y` tri-state tracking |
+| `basic/serialization-modes.vt` | Mode cocktail (`?7l`, `ESC =`, `?1h`, `?2004h`, `?1002h`, `?1006h`, `?1049h`, `?25l`, DECSCUSR `3q`) + SGR pen + margin write |
+
+The `bell` / `?12` / `modes` fixtures passed vacuously under the old 4-attr oracle
+(cells/cursor/alt only); they are determinism guards, with correctness pinned by
+unit tests (`bel_emits_typed_event_without_cell_side_effects`,
+`text_cursor_enable_is_tri_state`, serialization round-trips).
+
+## Oracle coverage
+
+- Cells: contents, `is_wide` / `is_wide_continuation`, fg/bg colors.
+- Attrs: full 10-bit SGR set — `bold`, `conceal`, `dim`, `inverse`, `italic`,
+  `overline`, `rapid_blink`, `slow_blink`, `strikethrough`, `underline`
+  (was 4-attr: `bold` / `italic` / `underline` / `inverse`).
+- Modes: `autowrap`, `application_keypad`, `application_cursor`,
+  `bracketed_paste`, `mouse_mode` (`mouse_protocol_mode`),
+  `mouse_encoding` (`mouse_protocol_encoding`), `focus_events`,
+  `text_cursor_enable`, `in_synchronized_update`, `cursor_style`,
+  `scrollback_len`, `mid_sequence`, plus `alternate_screen`.
+- Limits: the harness asserts one-shot vs byte-split equality only. It does not
+  assert Bell counts (covered by the fuzz target's `drain_passthrough` equality),
+  nor replay-form scope (`?12` / `2026` / focus are tracked + queryable but
+  intentionally outside every replay form and `state_eq` — the harness reads live
+  getters).
 
 ## Corpus categories
 

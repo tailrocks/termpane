@@ -1419,6 +1419,65 @@ fn decsed_decsel_parse_distinctly_and_erase_like_ed_el() {
 }
 
 #[test]
+fn invalid_selective_erase_modes_are_swallowed_silently() {
+    let mut g = DamageGrid::new(4, 8, 10);
+    g.process(b"\x1b[1;1HAB\x1b[2;1HCD");
+    assert!(
+        g.drain_passthrough().is_empty(),
+        "text setup emits no passthrough"
+    );
+    let before = [
+        cell_text(&g, 0, 0),
+        cell_text(&g, 0, 1),
+        cell_text(&g, 1, 0),
+        cell_text(&g, 1, 1),
+    ];
+    for seq in [
+        b"\x1b[5J".as_slice(),
+        b"\x1b[?5J".as_slice(),
+        b"\x1b[5K".as_slice(),
+        b"\x1b[?5K".as_slice(),
+    ] {
+        g.process(seq);
+        assert_eq!(
+            [
+                cell_text(&g, 0, 0),
+                cell_text(&g, 0, 1),
+                cell_text(&g, 1, 0),
+                cell_text(&g, 1, 1),
+            ],
+            before,
+            "invalid erase mode {seq:?} leaves the grid unchanged"
+        );
+        assert!(
+            g.drain_passthrough().is_empty(),
+            "invalid erase mode {seq:?} is swallowed silently (no DroppedCsi)"
+        );
+    }
+}
+
+#[test]
+fn bel_terminated_osc_emits_no_bell() {
+    let mut g = DamageGrid::new(3, 8, 10);
+    g.process(b"\x1b]2;title\x07");
+    let events = g.drain_passthrough();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e, PassthroughEvent::Bell))
+            .count(),
+        0,
+        "the OSC BEL terminator must not emit a Bell event"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, PassthroughEvent::TitleChanged(t) if t == "title")),
+        "OSC 2 title is still recorded: {events:?}"
+    );
+}
+
+#[test]
 fn zwj_continuation_breaks_after_a_cursor_move() {
     // The cluster-continuation barrier: a ZWJ-final cell only continues when
     // the next printable is written immediately after it.

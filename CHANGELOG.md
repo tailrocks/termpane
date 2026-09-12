@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Clarified
+
+- `CSI ?12` (text-cursor-enable), DEC 2026 (synchronized update), and DEC 1004
+  (focus events) are tracked + queryable via live getters but intentionally
+  outside every replay form (`contents_*`, `input_mode_*`, `state_*`) and
+  `state_eq` — by design; the conformance/fuzz harnesses read the live getters.
+- Invalid ED/EL/DECSED/DECSEL modes (`CSI 5J`, `CSI ?5J`, `CSI 5K`, `CSI ?5K`)
+  are swallowed silently (upstream unhandled-hook parity, no `DroppedCsi`);
+  pinned by unit test, exercised for determinism by
+  `tests/fixtures/basic/decsed-decsel.vt`.
+- DECRQM on never-set `?12` reports reset (tri-state `None` reads as reset).
+- `?6` DECOM is absorbed as a non-goal (no origin-mode emulation).
+- Scrollback rows keep their capture widths across `set_size` (resize preserves
+  content, does not re-wrap history).
+
 ## [0.7.0] - 2026-09-11
 
 ### Added
