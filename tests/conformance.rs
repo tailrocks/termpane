@@ -23,7 +23,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use termpane::{Cell, Color, DamageGrid};
+use termpane::{Cell, Color, DamageGrid, MouseProtocolEncoding, MouseProtocolMode};
 
 // ---------------------------------------------------------------------------
 // Neutral color type for snapshots
@@ -56,17 +56,24 @@ impl From<Color> for ColorSnap {
 /// quiet while the assertion side reads the whole struct via `PartialEq`.
 #[expect(
     clippy::struct_excessive_bools,
-    reason = "Four orthogonal SGR bits (bold / italic / underline / inverse) — \
-              the standard CSI SGR attribute set is intrinsically a 4-bit mask and \
+    reason = "Ten orthogonal SGR bits (bold / conceal / dim / inverse / italic / \
+              overline / rapid_blink / slow_blink / strikethrough / underline) — \
+              the standard CSI SGR attribute set is intrinsically a bit mask and \
               named-field construction reads better than bit-position lookups in a \
               conformance harness."
 )]
 #[derive(Debug, PartialEq, Eq, Default, Clone, Copy)]
 struct CellAttributes {
     bold: bool,
-    italic: bool,
-    underline: bool,
+    conceal: bool,
+    dim: bool,
     inverse: bool,
+    italic: bool,
+    overline: bool,
+    rapid_blink: bool,
+    slow_blink: bool,
+    strikethrough: bool,
+    underline: bool,
 }
 
 /// A comparable snapshot of a single screen cell.
@@ -81,6 +88,13 @@ struct CellSnapshot {
 }
 
 /// A comparable snapshot of a full terminal screen.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "Eight orthogonal DEC mode flags (alt-screen / app-cursor / app-keypad / \
+              autowrap / bracketed-paste / focus-events / sync-update / mid-sequence) — \
+              the terminal mode surface is intrinsically a flag set and named-field \
+              construction reads better than bit-position lookups in a conformance harness."
+)]
 #[derive(Debug)]
 struct ScreenSnapshot {
     rows: u16,
@@ -88,6 +102,18 @@ struct ScreenSnapshot {
     cursor_row: u16,
     cursor_col: u16,
     alternate_screen: bool,
+    application_cursor: bool,
+    application_keypad: bool,
+    autowrap: bool,
+    bracketed_paste: bool,
+    cursor_style: u16,
+    focus_events: bool,
+    in_synchronized_update: bool,
+    mid_sequence: bool,
+    mouse_encoding: MouseProtocolEncoding,
+    mouse_mode: MouseProtocolMode,
+    scrollback_len: usize,
+    text_cursor_enable: Option<bool>,
     cells: Vec<Vec<CellSnapshot>>,
 }
 
@@ -117,6 +143,54 @@ impl ScreenSnapshot {
         assert_eq!(
             self.alternate_screen, other.alternate_screen,
             "{label}: alt-screen flag mismatch"
+        );
+        assert_eq!(
+            self.application_cursor, other.application_cursor,
+            "{label}: application-cursor flag mismatch"
+        );
+        assert_eq!(
+            self.application_keypad, other.application_keypad,
+            "{label}: application-keypad flag mismatch"
+        );
+        assert_eq!(
+            self.autowrap, other.autowrap,
+            "{label}: autowrap flag mismatch"
+        );
+        assert_eq!(
+            self.bracketed_paste, other.bracketed_paste,
+            "{label}: bracketed-paste flag mismatch"
+        );
+        assert_eq!(
+            self.cursor_style, other.cursor_style,
+            "{label}: cursor-style mismatch"
+        );
+        assert_eq!(
+            self.focus_events, other.focus_events,
+            "{label}: focus-events flag mismatch"
+        );
+        assert_eq!(
+            self.in_synchronized_update, other.in_synchronized_update,
+            "{label}: synchronized-update flag mismatch"
+        );
+        assert_eq!(
+            self.mid_sequence, other.mid_sequence,
+            "{label}: mid-sequence flag mismatch"
+        );
+        assert_eq!(
+            self.mouse_encoding, other.mouse_encoding,
+            "{label}: mouse-encoding mismatch"
+        );
+        assert_eq!(
+            self.mouse_mode, other.mouse_mode,
+            "{label}: mouse-mode mismatch"
+        );
+        assert_eq!(
+            self.scrollback_len, other.scrollback_len,
+            "{label}: scrollback-len mismatch"
+        );
+        assert_eq!(
+            self.text_cursor_enable, other.text_cursor_enable,
+            "{label}: text-cursor-enable mismatch"
         );
         for r in 0..self.rows as usize {
             for c in 0..self.cols as usize {
@@ -158,9 +232,15 @@ fn snapshot_damagegrid(grid: &DamageGrid) -> ScreenSnapshot {
                 background: cell.bgcolor().into(),
                 attributes: CellAttributes {
                     bold: cell.bold(),
-                    italic: cell.italic(),
-                    underline: cell.underline(),
+                    conceal: cell.conceal(),
+                    dim: cell.dim(),
                     inverse: cell.inverse(),
+                    italic: cell.italic(),
+                    overline: cell.overline(),
+                    rapid_blink: cell.rapid_blink(),
+                    slow_blink: cell.slow_blink(),
+                    strikethrough: cell.strikethrough(),
+                    underline: cell.underline(),
                 },
             });
         }
@@ -173,6 +253,18 @@ fn snapshot_damagegrid(grid: &DamageGrid) -> ScreenSnapshot {
         cursor_row,
         cursor_col,
         alternate_screen: grid.alternate_screen(),
+        application_cursor: grid.application_cursor(),
+        application_keypad: grid.application_keypad(),
+        autowrap: grid.autowrap(),
+        bracketed_paste: grid.bracketed_paste(),
+        cursor_style: grid.cursor_style(),
+        focus_events: grid.focus_events(),
+        in_synchronized_update: grid.in_synchronized_update(),
+        mid_sequence: grid.mid_sequence(),
+        mouse_encoding: grid.mouse_protocol_encoding(),
+        mouse_mode: grid.mouse_protocol_mode(),
+        scrollback_len: grid.scrollback_len(),
+        text_cursor_enable: grid.text_cursor_enable(),
         cells,
     }
 }

@@ -55,20 +55,21 @@ Rust 1.97 or newer (MSRV, pinned by `rust-toolchain.toml`).
 ## Verify
 
 ```sh
-cargo nextest run                                        # 116 tests
+cargo nextest run                                        # 161 tests (114 unit + 43 conformance + 4 serialization_proptest)
 cargo nextest run --all-features                         # +2 dhat allocation tests
 cargo clippy --all-targets --all-features -- -D warnings
 cargo fuzz run damage_grid_process -- -max_total_time=30 # bounded fuzz smoke
 cargo bench --bench resize_storm -- --quick
 cargo bench --bench scroll_throughput -- --quick
 cargo bench --bench present_frame -- --quick
+cargo bench --bench preserve_scrollback -- --quick
 ```
 
 The conformance corpus lives in [`tests/fixtures/`](tests/fixtures) (vttest/esctest excerpts, real tool captures, pathological streams); the replay harness is [`tests/conformance.rs`](tests/conformance.rs).
 
 ## History
 
-`termpane` was extracted from the [`jackin-project/jackin`](https://github.com/jackin-project/jackin) monorepo, where it lived as `crates/jackin-term` — the owned terminal model of the jackin❯ Capsule re-emitting PTY multiplexer. The git history is preserved (extraction via `git filter-repo`); design rationale and the retire-`vt100` record live in that repository's `docs/content/reference/capsule/terminal-model.mdx`. The 0.6.4 extraction release carries no behavior changes.
+`termpane` was extracted from the [`jackin-project/jackin`](https://github.com/jackin-project/jackin) monorepo, where it lived as `crates/jackin-term` — the owned terminal model of the jackin❯ Capsule re-emitting PTY multiplexer. The git history is preserved (extraction via `git filter-repo`); design rationale and the retire-`vt100` record live in that repository's `docs/content/reference/capsule/terminal-model.mdx` (link kept; vendoring declined). The 0.6.4 extraction release carries no behavior changes.
 
 ## License
 

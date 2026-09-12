@@ -17,8 +17,8 @@
 //!   cargo fuzz run --sanitizer none damage_grid_process -- -max_total_time=86400
 
 #![no_main]
-use termpane::{Cell, Color, DamageGrid};
 use libfuzzer_sys::fuzz_target;
+use termpane::{Color, DamageGrid, PassthroughEvent};
 
 fuzz_target!(|data: &[u8]| {
     let mut one_shot = DamageGrid::new(24, 80, 10_000);
@@ -33,6 +33,28 @@ fuzz_target!(|data: &[u8]| {
     assert_eq!(one_shot.alternate_screen(), split.alternate_screen());
     assert_eq!(one_shot.hide_cursor(), split.hide_cursor());
     assert_eq!(one_shot.application_cursor(), split.application_cursor());
+    assert_eq!(one_shot.application_keypad(), split.application_keypad());
+    assert_eq!(one_shot.autowrap(), split.autowrap());
+    assert_eq!(one_shot.bracketed_paste(), split.bracketed_paste());
+    assert_eq!(
+        one_shot.mouse_protocol_mode(),
+        split.mouse_protocol_mode()
+    );
+    assert_eq!(
+        one_shot.mouse_protocol_encoding(),
+        split.mouse_protocol_encoding()
+    );
+    assert_eq!(one_shot.focus_events(), split.focus_events());
+    assert_eq!(
+        one_shot.text_cursor_enable(),
+        split.text_cursor_enable()
+    );
+    assert_eq!(
+        one_shot.in_synchronized_update(),
+        split.in_synchronized_update()
+    );
+    assert_eq!(one_shot.cursor_style(), split.cursor_style());
+    assert_eq!(one_shot.scrollback_len(), split.scrollback_len());
     assert_eq!(one_shot.mid_sequence(), split.mid_sequence());
 
     let (rows, cols) = one_shot.size();
@@ -49,9 +71,21 @@ fuzz_target!(|data: &[u8]| {
             assert_eq!(left.is_wide_continuation, right.is_wide_continuation);
             assert_eq!(color(left.fgcolor()), color(right.fgcolor()));
             assert_eq!(color(left.bgcolor()), color(right.bgcolor()));
-            assert_eq!(attrs(left), attrs(right));
+            assert_eq!(left.attrs, right.attrs);
         }
     }
+
+    let left_bells = one_shot
+        .drain_passthrough()
+        .into_iter()
+        .filter(|e| matches!(e, PassthroughEvent::Bell))
+        .count();
+    let right_bells = split
+        .drain_passthrough()
+        .into_iter()
+        .filter(|e| matches!(e, PassthroughEvent::Bell))
+        .count();
+    assert_eq!(left_bells, right_bells, "Bell-count mismatch");
 
     // Serialization round-trip at a deterministic intermediate state and at
     // the final state. The intermediate replay also seeds the diff path.
@@ -70,10 +104,6 @@ fuzz_target!(|data: &[u8]| {
     pre_replay.process(&one_shot.state_diff(&pre));
     assert!(one_shot.state_eq(&pre_replay), "state_diff replay");
 });
-
-fn attrs(cell: &Cell) -> (bool, bool, bool, bool) {
-    (cell.bold(), cell.italic(), cell.underline(), cell.inverse())
-}
 
 fn color(color: Color) -> (u8, u8, u8, u8) {
     match color {
