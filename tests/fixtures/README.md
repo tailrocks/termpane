@@ -14,7 +14,7 @@ and tracked DEC modes — see Oracle coverage below).
   (CJK `界` stays inline UTF-8)
 - `.cast` — asciinema v2 JSONL; the harness replays every output (`"o"`) event
 
-## Parity follow-up fixtures (0.7.0)
+## Parity follow-up fixtures (0.1.0)
 
 | Fixture | Concern |
 |---|---|

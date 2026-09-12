@@ -5,24 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - 2026-09-12
 
-### Clarified
-
-- `CSI ?12` (text-cursor-enable), DEC 2026 (synchronized update), and DEC 1004
-  (focus events) are tracked + queryable via live getters but intentionally
-  outside every replay form (`contents_*`, `input_mode_*`, `state_*`) and
-  `state_eq` — by design; the conformance/fuzz harnesses read the live getters.
-- Invalid ED/EL/DECSED/DECSEL modes (`CSI 5J`, `CSI ?5J`, `CSI 5K`, `CSI ?5K`)
-  are swallowed silently (upstream unhandled-hook parity, no `DroppedCsi`);
-  pinned by unit test, exercised for determinism by
-  `tests/fixtures/basic/decsed-decsel.vt`.
-- DECRQM on never-set `?12` reports reset (tri-state `None` reads as reset).
-- `?6` DECOM is absorbed as a non-goal (no origin-mode emulation).
-- Scrollback rows keep their capture widths across `set_size` (resize preserves
-  content, does not re-wrap history).
-
-## [0.7.0] - 2026-09-11
+First standalone release. Extracted from the [`jackin-project/jackin`](https://github.com/jackin-project/jackin) monorepo, where the crate lived as `crates/jackin-term` (the owned terminal model of the jackin❯ Capsule PTY multiplexer); history preserved via `git filter-repo`. Renamed `jackin-term` → `termpane` (lib `jackin_term` → `termpane`). The extraction itself carries no behavior changes vs the monorepo source; this release additionally lands the tui-snap parity surface listed below.
 
 ### Added
 
@@ -51,10 +36,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `cursor_position()` (adapter clamps to `cols-1`).
 - `proptest` dev-dependency for the serialization round-trip property.
 
-## [0.6.4] - 2026-09-11
+### Clarified
 
-### Changed
-
-- Extracted from the [`jackin-project/jackin`](https://github.com/jackin-project/jackin) monorepo, where the crate lived as `crates/jackin-term` (the owned terminal model of the jackin❯ Capsule PTY multiplexer). History preserved via `git filter-repo`.
-- Renamed the crate `jackin-term` → `termpane` (lib `jackin_term` → `termpane`).
-- No behavior changes: this is the first standalone release, bit-identical in logic to the monorepo source at extraction.
+- `CSI ?12` (text-cursor-enable), DEC 2026 (synchronized update), and DEC 1004
+  (focus events) are tracked + queryable via live getters but intentionally
+  outside every replay form (`contents_*`, `input_mode_*`, `state_*`) and
+  `state_eq` — by design; the conformance/fuzz harnesses read the live getters.
+- Invalid ED/EL/DECSED/DECSEL modes (`CSI 5J`, `CSI ?5J`, `CSI 5K`, `CSI ?5K`)
+  are swallowed silently (upstream unhandled-hook parity, no `DroppedCsi`);
+  pinned by unit test, exercised for determinism by
+  `tests/fixtures/basic/decsed-decsel.vt`.
+- DECRQM on never-set `?12` reports reset (tri-state `None` reads as reset).
+- `?6` DECOM is absorbed as a non-goal (no origin-mode emulation).
+- Scrollback rows keep their capture widths across `set_size` (resize preserves
+  content, does not re-wrap history).

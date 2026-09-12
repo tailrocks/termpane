@@ -69,7 +69,7 @@ The conformance corpus lives in [`tests/fixtures/`](tests/fixtures) (vttest/esct
 
 ## History
 
-`termpane` was extracted from the [`jackin-project/jackin`](https://github.com/jackin-project/jackin) monorepo, where it lived as `crates/jackin-term` — the owned terminal model of the jackin❯ Capsule re-emitting PTY multiplexer. The git history is preserved (extraction via `git filter-repo`); design rationale and the retire-`vt100` record live in that repository's `docs/content/reference/capsule/terminal-model.mdx` (link kept; vendoring declined). The 0.6.4 extraction release carries no behavior changes.
+`termpane` was extracted from the [`jackin-project/jackin`](https://github.com/jackin-project/jackin) monorepo, where it lived as `crates/jackin-term` — the owned terminal model of the jackin❯ Capsule re-emitting PTY multiplexer. The git history is preserved (extraction via `git filter-repo`); design rationale and the retire-`vt100` record live in that repository's `docs/content/reference/capsule/terminal-model.mdx` (link kept; vendoring declined). The 0.1.0 release is the first standalone release; the extraction itself carried no behavior changes.
 
 ## License
 

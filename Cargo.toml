@@ -3,7 +3,7 @@
 
 [package]
 name = "termpane"
-version = "0.7.0"
+version = "0.1.0"
 edition = "2024"
 rust-version = "1.97"
 authors = ["Alexey Zhokhov <alexey@zhokhov.com>"]
