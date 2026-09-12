@@ -10,7 +10,7 @@ You can expect an acknowledgement within a few days. If the report is accepted, 
 
 | Version | Supported |
 |---|---|
-| latest 0.7.x | yes |
+| latest 0.1.x | yes |
 | older | no |
 
 ## Attack-Surface Posture
