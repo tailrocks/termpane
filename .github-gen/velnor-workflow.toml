@@ -1,0 +1,35 @@
+schema = 1
+
+[generator]
+repository = "tailrocks/termpane"
+
+[workflow]
+runners = "both"
+automatic = "both"
+default_dispatch_runner = "github"
+automatic_lanes = "github"
+github_runner = "ubuntu-24.04"
+velnor_labels = ["self-hosted", "velnor-target-mvp"]
+default_branch = "main"
+
+[policy]
+exclude_workflows = ["publish.yml", "fuzz-nightly.yml"]
+
+[[static_files]]
+file = ".github/workflows/publish.yml"
+source = ".github/workflows/publish.yml"
+
+[[static_files]]
+file = ".github/workflows/fuzz-nightly.yml"
+source = ".github/workflows/fuzz-nightly.yml"
+
+[[declare]]
+primitive = "release"
+file = "release.yml"
+
+[declare.args]
+kind = "rust-binary"
+package = "termpane"
+binary = "termpane"
+targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
+source_repository = "tailrocks/termpane"
