@@ -36,19 +36,13 @@ fuzz_target!(|data: &[u8]| {
     assert_eq!(one_shot.application_keypad(), split.application_keypad());
     assert_eq!(one_shot.autowrap(), split.autowrap());
     assert_eq!(one_shot.bracketed_paste(), split.bracketed_paste());
-    assert_eq!(
-        one_shot.mouse_protocol_mode(),
-        split.mouse_protocol_mode()
-    );
+    assert_eq!(one_shot.mouse_protocol_mode(), split.mouse_protocol_mode());
     assert_eq!(
         one_shot.mouse_protocol_encoding(),
         split.mouse_protocol_encoding()
     );
     assert_eq!(one_shot.focus_events(), split.focus_events());
-    assert_eq!(
-        one_shot.text_cursor_enable(),
-        split.text_cursor_enable()
-    );
+    assert_eq!(one_shot.text_cursor_enable(), split.text_cursor_enable());
     assert_eq!(
         one_shot.in_synchronized_update(),
         split.in_synchronized_update()
@@ -95,7 +89,10 @@ fuzz_target!(|data: &[u8]| {
 
     let mut pre_replay = DamageGrid::new(24, 80, 10_000);
     pre_replay.process(&pre.state_formatted());
-    assert!(pre.state_eq(&pre_replay), "intermediate state_formatted replay");
+    assert!(
+        pre.state_eq(&pre_replay),
+        "intermediate state_formatted replay"
+    );
 
     let mut replay = DamageGrid::new(24, 80, 10_000);
     replay.process(&one_shot.state_formatted());
