@@ -40,12 +40,13 @@ transport features below spawn real processes by design; passive users
 Unix-only. `process` covers piped children (spawn-params builder, piped
 spawn with an optional new-session flag, exit polling/reaping, signals,
 pid/pgid/sid/uid probes); `pty` (which implies `process`) covers PTY
-allocation, spawn-into-PTY, split reader/writer handles, and resize.
+allocation, spawn-into-PTY, split reader/writer handles, resize, and
+live grid-backed sessions.
 
 | Feature | Module | Extra dependencies | Default |
 |---|---|---|---|
 | `process` | `termpane::process` | `nix` 0.31 (`fs`, `process`, `signal`, `user`) | off |
-| `pty` | `termpane::pty` | `portable-pty` 0.9 (pulls `nix` 0.28, `libc`, `filedescriptor`, …) | off |
+| `pty` | `termpane::pty`, `termpane::session` | `portable-pty` 0.9 (pulls `nix` 0.28, `libc`, `filedescriptor`, …) | off |
 
 Dependency transparency: termpane's own code stays `unsafe_code = forbid`
 under every feature combination — the syscalls (`posix_spawn`, `kill`,
@@ -70,6 +71,11 @@ Semantics worth knowing before adopting:
   message until their flag value is verified.
 - `kill()` on a PTY child delivers SIGHUP first (backend behavior) and
   escalates; on a piped child it is SIGKILL immediately.
+- Live sessions (`termpane::session`) pump PTY output through a `DamageGrid`
+  on a worker thread, route emulator replies (DA/DSR answers) back to PTY
+  stdin automatically, drain trailing output after child exit before
+  reporting it, and bound every teardown step (`finish`/`close`/`Drop`
+  never hang past their grace).
 
 ## Quick start
 

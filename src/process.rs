@@ -271,6 +271,16 @@ impl ExitStatus {
             signal: signal.map(str::to_owned),
         }
     }
+
+    /// Last-resort status when session teardown cannot determine the outcome
+    /// (crate-internal; see `session` module).
+    #[cfg(feature = "pty")]
+    pub(crate) fn unknown() -> Self {
+        Self {
+            code: 1,
+            signal: Some(String::from("unknown")),
+        }
+    }
 }
 
 impl std::fmt::Display for ExitStatus {

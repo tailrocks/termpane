@@ -29,7 +29,9 @@ default = []
 # for default (model-only) users.
 process = ["dep:nix"]
 # PTY transport (Unix only, implies `process`): master/slave allocation,
-# spawn-into-PTY, split reader/writer handles, resize. Pulls `portable-pty`.
+# spawn-into-PTY, split reader/writer handles, resize, plus the live-session
+# layer (`termpane::session`: grid pump, reply routing, bounded teardown).
+# Pulls `portable-pty`.
 pty = ["process", "dep:portable-pty"]
 # Enables the DHAT allocator in `benches/present_frame.rs` so the present-frame
 # allocation axis can be profiled with:

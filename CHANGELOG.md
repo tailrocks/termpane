@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Live PTY sessions (`termpane::session`, Unix-only `pty` feature): spawns
+  `SpawnParams` into a PTY, pumps output through `DamageGrid` on a worker
+  thread, and routes emulator replies (DA/DSR/DECRQM answers) back to PTY
+  stdin automatically. Covers `TERM`/`COLORTERM` defaulting from
+  `VirtualTerminalProfile`, atomic PTY+grid resize, signals via the
+  transport, `poll_exit`/`wait_exit` with trailing-output drain,
+  `close_input` (EOF), graceful `finish` and forceful idempotent `close`
+  (all teardown bounded; `Drop` never hangs), plus `output_log` recording so
+  live state can be verified against byte replay via
+  `state_formatted`/`state_eq`. Hermetic conformance suite in
+  `tests/session.rs`.
+
 ## [0.1.0] - 2026-09-12
 
 First standalone release. Extracted from the [`jackin-project/jackin`](https://github.com/jackin-project/jackin) monorepo, where the crate lived as `crates/jackin-term` (the owned terminal model of the jackin❯ Capsule PTY multiplexer); history preserved via `git filter-repo`. Renamed `jackin-term` → `termpane` (lib `jackin_term` → `termpane`). The extraction itself carries no behavior changes vs the monorepo source; this release additionally lands the tui-snap parity surface listed below.

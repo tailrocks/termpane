@@ -13,6 +13,8 @@ pub mod passthrough;
 pub mod process;
 #[cfg(all(unix, feature = "pty"))]
 pub mod pty;
+#[cfg(all(unix, feature = "pty"))]
+pub mod session;
 pub mod snapshot;
 pub mod width;
 
