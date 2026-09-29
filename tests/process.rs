@@ -21,6 +21,25 @@ fn piped_stdout() -> PipedStdio {
     PipedStdio::new().stdout(Stdio::Pipe)
 }
 
+/// Test-only poll pacing on an owned test thread.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "test-only poll pacing on an owned test thread, never a render/runtime thread"
+)]
+fn sleep_ms(ms: u64) {
+    std::thread::sleep(Duration::from_millis(ms));
+}
+
+/// Reap by polling `try_wait` (exercises the sticky-status path).
+fn wait_via_try_wait(child: &mut PipedChild) -> std::io::Result<termpane::process::ExitStatus> {
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(status);
+        }
+        sleep_ms(5);
+    }
+}
+
 /// Read a piped child's stdout fully, then reap it.
 fn read_stdout_and_wait(
     child: &mut PipedChild,
@@ -331,4 +350,160 @@ fn blocking_wait_resolves_promptly() {
     let start = Instant::now();
     assert!(child.wait().expect("wait").success());
     assert!(start.elapsed() < Duration::from_secs(10));
+}
+
+#[test]
+fn detached_spawn_searches_overridden_path() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = std::env::temp_dir().join(format!("tp2-path-{}", own_pid()));
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    let tool = dir.join("tp2-tool-xyz");
+    std::fs::write(&tool, "#!/bin/sh\necho path-ok\n").expect("write tool");
+    std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    // `posix_spawnp` resolves against the *parent* PATH, ignoring the child
+    // env vector; the detached path must resolve against the merged child
+    // PATH instead, or this tool (absent from the system PATH) is ENOENT.
+    for detached in [false, true] {
+        let params = SpawnParams::new("tp2-tool-xyz")
+            .env("PATH", &dir)
+            .detached(detached);
+        let mut child = spawn_piped(&params, &piped_stdout()).expect("spawn via child PATH");
+        let (out, status) = read_stdout_and_wait(&mut child).expect("drain");
+        assert!(status.success(), "detached={detached}");
+        assert_eq!(out, "path-ok\n", "detached={detached}");
+    }
+    std::fs::remove_file(&tool).expect("cleanup");
+    std::fs::remove_dir(&dir).expect("cleanup");
+}
+
+#[test]
+fn detached_unexecutable_program_reports_permission_denied() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = std::env::temp_dir().join(format!("tp2-noexec-{}", own_pid()));
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    let tool = dir.join("tp2-noexec-xyz");
+    std::fs::write(&tool, "#!/bin/sh\necho noexec\n").expect("write tool");
+    std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o644)).expect("chmod");
+    // Present in the child PATH but not executable: execvp reports EACCES
+    // (not ENOENT) when a candidate exists but cannot run.
+    for detached in [false, true] {
+        let params = SpawnParams::new("tp2-noexec-xyz")
+            .env("PATH", &dir)
+            .detached(detached);
+        let err = spawn_piped(&params, &null_stdio()).expect_err("unexecutable must fail");
+        assert_eq!(
+            err.kind(),
+            std::io::ErrorKind::PermissionDenied,
+            "detached={detached}"
+        );
+    }
+    std::fs::remove_file(&tool).expect("cleanup");
+    std::fs::remove_dir(&dir).expect("cleanup");
+}
+
+#[test]
+fn identity_probes_reject_pid_zero() {
+    // Pid 0 means "calling process" to getpgid/getsid; reporting our own
+    // ids for it would let callers validate the wrong process.
+    assert_eq!(process_ids(0), None);
+    assert_eq!(session_id_of(0), None);
+}
+
+#[test]
+fn file_cwd_rejected_on_both_paths() {
+    let path = std::env::temp_dir().join(format!("tp2-filecwd-{}.txt", own_pid()));
+    std::fs::write(&path, "x").expect("write");
+    for detached in [false, true] {
+        let params = SpawnParams::new("true")
+            .current_dir(&path)
+            .detached(detached);
+        let err = spawn_piped(&params, &null_stdio()).expect_err("file cwd must fail fast");
+        // Attached kind is std-owned and platform-dependent (Linux
+        // fork+chdir reports ENOTDIR; macOS std uses posix_spawn with
+        // Apple's addchdir_np, which reports ENOENT for non-directories),
+        // so only the synchronous failure itself is pinned there.
+        if detached {
+            assert_eq!(err.kind(), std::io::ErrorKind::NotADirectory);
+        }
+    }
+    std::fs::remove_file(&path).expect("cleanup");
+}
+
+#[test]
+fn unsearchable_cwd_rejected_on_both_paths() {
+    use std::os::unix::fs::PermissionsExt as _;
+    if current_uid() == 0 {
+        eprintln!("skip: root bypasses directory search permission");
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("tp2-nocwd-{}", own_pid()));
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+    for detached in [false, true] {
+        let params = SpawnParams::new("true")
+            .current_dir(&dir)
+            .detached(detached);
+        let err = spawn_piped(&params, &null_stdio()).expect_err("unsearchable cwd must fail");
+        assert_eq!(
+            err.kind(),
+            std::io::ErrorKind::PermissionDenied,
+            "detached={detached}"
+        );
+    }
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).expect("chmod back");
+    std::fs::remove_dir(&dir).expect("cleanup");
+}
+
+#[test]
+fn kill_after_reap_is_safe_noop_on_both_paths() {
+    // std's contract (Child::kill docs): "If the child has already exited,
+    // Ok(()) is returned." A reaped pid must never be signalled: it may
+    // already be reused by an unrelated process. The dead-pid assertion
+    // proves the Ok is a true no-op — a real kill(2) on a dead pid fails.
+    for detached in [false, true] {
+        for reaper in ["wait", "try_wait"] {
+            let params = SpawnParams::new("true").detached(detached);
+            let mut child = spawn_piped(&params, &null_stdio()).expect("spawn");
+            if reaper == "wait" {
+                assert!(child.wait().expect("wait").success());
+            } else {
+                assert!(wait_via_try_wait(&mut child).expect("reap").success());
+            }
+            let pid = child.pid().expect("pid");
+            assert!(!pid_alive(pid), "reaped pid must be dead");
+            child
+                .kill()
+                .expect("kill after reap is a safe no-op, like std");
+        }
+    }
+}
+
+#[test]
+fn detached_null_stdio_leaks_no_extra_null_fds() {
+    // Counts fds above 2 backed by /dev/null (dev+ino comparison, so the
+    // enumerator's own dir fd and stray inherited pipes never count).
+    // `stat -c` is GNU, `stat -f` is BSD/macOS.
+    let script = "null_id=$(stat -c '%d:%i' /dev/null 2>/dev/null || stat -f '%d:%i' /dev/null)\n\
+        dir=/proc/self/fd; [ -d \"$dir\" ] || dir=/dev/fd\n\
+        leaked=0\n\
+        for f in \"$dir\"/*; do\n\
+        n=${f##*/}\n\
+        case $n in *[!0-9]*) continue;; esac\n\
+        [ \"$n\" -gt 2 ] || continue\n\
+        id=$(stat -c '%d:%i' \"$f\" 2>/dev/null || stat -f '%d:%i' \"$f\" 2>/dev/null) || continue\n\
+        [ \"$id\" = \"$null_id\" ] && leaked=$((leaked+1))\n\
+        done\n\
+        echo \"leaked=$leaked\"";
+    for detached in [false, true] {
+        let params = SpawnParams::new("sh")
+            .args(["-c", script])
+            .detached(detached);
+        let mut child = spawn_piped(&params, &piped_stdout()).expect("spawn");
+        let (out, status) = read_stdout_and_wait(&mut child).expect("drain");
+        assert!(status.success(), "detached={detached}");
+        // The attached leg doubles as a methodology self-check: std closes
+        // everything above 2, so a nonzero count there means the script
+        // itself is broken, not the spawn path.
+        assert_eq!(out.trim(), "leaked=0", "detached={detached}");
+    }
 }

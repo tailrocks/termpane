@@ -451,8 +451,14 @@ pub struct ProcessIds {
 ///
 /// A thin wrapper: `None` on any failure (no such process, bad pid); all
 /// policy (minimum pgid, group-membership guards) stays with the caller.
+/// Pid 0 is refused outright — to these calls it means "the calling
+/// process", and reporting our own ids for it would let callers validate
+/// the wrong process.
 #[must_use]
 pub fn process_ids(pid: u32) -> Option<ProcessIds> {
+    if pid == 0 {
+        return None;
+    }
     let target = pid_from_u32(pid)?;
     let pgid = nix::unistd::getpgid(Some(target)).ok()?;
     let sid = nix::unistd::getsid(Some(target)).ok()?;
@@ -464,10 +470,14 @@ pub fn process_ids(pid: u32) -> Option<ProcessIds> {
 
 /// Session id of `pid` (`getsid`), for re-verifying identity before a signal.
 ///
-/// `None` on any failure. Prefer this over parsing `ps` output: it cannot
-/// disagree with the kernel the way a text snapshot can.
+/// `None` on any failure. Pid 0 is refused (it would report our own
+/// session). Prefer this over parsing `ps` output: it cannot disagree with
+/// the kernel the way a text snapshot can.
 #[must_use]
 pub fn session_id_of(pid: u32) -> Option<i32> {
+    if pid == 0 {
+        return None;
+    }
     let target = pid_from_u32(pid)?;
     nix::unistd::getsid(Some(target))
         .ok()
@@ -486,10 +496,13 @@ pub fn own_pgid() -> i32 {
     nix::unistd::getpgrp().as_raw()
 }
 
-/// Our own effective user id (`getuid`, infallible).
+/// Our own effective user id (`geteuid`, infallible).
+///
+/// Effective, not real: in a setuid process (or after `seteuid`) this is
+/// the account whose permissions govern our syscalls, matching `id -u`.
 #[must_use]
 pub fn current_uid() -> u32 {
-    nix::unistd::getuid().as_raw()
+    nix::unistd::geteuid().as_raw()
 }
 
 // ---------------------------------------------------------------------------
@@ -508,7 +521,8 @@ pub fn current_uid() -> u32 {
 ///   missing directory fails the spawn instead of the shell).
 ///
 /// Program lookup follows `execvp` rules in both paths: a name without a
-/// slash is resolved via `PATH`, otherwise used as a path.
+/// slash is resolved via the child's effective `PATH` (parent entries plus
+/// overrides), otherwise used as a path.
 ///
 /// # Errors
 ///
@@ -616,15 +630,23 @@ impl PipedChild {
         }
     }
 
-    /// Kill the child (`SIGKILL`). Errors when the child already exited.
+    /// Kill the child (`SIGKILL`).
+    ///
+    /// A kill on an already-reaped child is a silent no-op returning `Ok`
+    /// (matching `std`, whose contract is "if the child has already exited,
+    /// `Ok(())` is returned"): the pid is never signalled after reaping, so
+    /// kernel pid reuse cannot redirect the signal at an unrelated process.
     ///
     /// # Errors
     ///
-    /// Returns [`std::io::Error`] when the kill fails.
+    /// Returns [`std::io::Error`] when the underlying kill fails.
     pub fn kill(&mut self) -> std::io::Result<()> {
         match &mut self.inner {
             PipedInner::Std(child) => child.kill(),
-            PipedInner::Detached { pid, .. } => {
+            PipedInner::Detached { pid, done } => {
+                if done.is_some() {
+                    return Ok(());
+                }
                 nix::sys::signal::kill(*pid, nix::sys::signal::Signal::SIGKILL)?;
                 Ok(())
             }
@@ -760,11 +782,16 @@ compile_error!("detached spawn: POSIX_SPAWN_SETSID value not verified for this t
 const DETACHED_CWD_SCRIPT: &str = "cd -- \"$0\" && exec \"$@\"";
 
 /// Full child environment: parent entries plus overrides (overrides win).
-fn spawn_env(params: &SpawnParams) -> std::io::Result<Vec<CString>> {
+fn merged_env(params: &SpawnParams) -> BTreeMap<OsString, OsString> {
     let mut merged: BTreeMap<OsString, OsString> = std::env::vars_os().collect();
     for (key, value) in params.env_overrides() {
         merged.insert(key.clone(), value.clone());
     }
+    merged
+}
+
+/// Merged environment into `KEY=VALUE` C strings for the spawn call.
+fn env_cstrings(merged: &BTreeMap<OsString, OsString>) -> std::io::Result<Vec<CString>> {
     merged
         .iter()
         .map(|(key, value)| {
@@ -774,6 +801,73 @@ fn spawn_env(params: &SpawnParams) -> std::io::Result<Vec<CString>> {
             CString::new(bytes).map_err(|_| invalid_input("spawn: NUL byte in environment"))
         })
         .collect()
+}
+
+/// `execvp`-style default search path, used only when the merged child
+/// environment has no `PATH` at all (the attached path then follows the
+/// libc default too). Mirrors `confstr(_CS_PATH)` on both of our targets;
+/// `SpawnParams` cannot unset variables, so this fires only when the parent
+/// itself runs without `PATH`.
+const DEFAULT_CHILD_PATH: &str = "/bin:/usr/bin";
+
+/// Resolve a slashless `program` against the child's effective `PATH`.
+///
+/// `posix_spawnp` searches with the *calling* process's `PATH`, ignoring
+/// the env vector — so a `PATH` override would apply on the attached path
+/// (which execs after installing the child env) but be skipped here. The
+/// detached direct path resolves explicitly and spawns the hit with plain
+/// `posix_spawn`; only the spawn image is resolved, argv stays verbatim.
+/// Slash programs bypass the search on every path. Empty components name
+/// the working directory (`execvp` rule); this runs only in the no-cwd
+/// branch, so that is the parent cwd on both paths.
+fn resolve_in_child_path(
+    program: &OsStr,
+    merged: &BTreeMap<OsString, OsString>,
+) -> std::io::Result<PathBuf> {
+    if program.as_bytes().contains(&b'/') {
+        return Ok(PathBuf::from(program));
+    }
+    let path_var = merged
+        .get(OsStr::new("PATH"))
+        .map_or(DEFAULT_CHILD_PATH.as_bytes(), |path| path.as_bytes());
+    let mut saw_eacces = false;
+    for dir in path_var.split(|byte| *byte == b':') {
+        let dir = if dir.is_empty() {
+            OsStr::new(".")
+        } else {
+            OsStr::from_bytes(dir)
+        };
+        let candidate = Path::new(dir).join(program);
+        // Stat first: only an *existing* candidate can poison the outcome
+        // with `EACCES` (unexecutable file, directory, symlink to either).
+        // A failed stat (absent name, unsearchable PATH dir) just moves on,
+        // which is also how `execvp` keeps a broken PATH entry from masking
+        // a clean `ENOENT` for a mistyped name.
+        match std::fs::metadata(&candidate) {
+            Ok(meta) if meta.is_dir() => saw_eacces = true,
+            Ok(_) => match nix::unistd::access(&candidate, nix::unistd::AccessFlags::X_OK) {
+                Ok(()) => return Ok(candidate),
+                Err(_) => saw_eacces = true,
+            },
+            Err(_) => {}
+        }
+    }
+    if saw_eacces {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!(
+                "detached spawn: {}: Permission denied",
+                Path::new(program).display()
+            ),
+        ));
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        format!(
+            "detached spawn: {}: No such file or directory",
+            Path::new(program).display()
+        ),
+    ))
 }
 
 /// A pipe whose ends are close-on-exec (macOS has no atomic `pipe2`, hence
@@ -795,27 +889,54 @@ fn cstr(bytes: &[u8], what: &str) -> std::io::Result<CString> {
     CString::new(bytes).map_err(|_| invalid_input(format!("spawn: NUL byte in {what}")))
 }
 
+/// Reject an unusable detached-spawn cwd before reporting success: a
+/// missing directory keeps its lookup error, a non-directory reports
+/// `NotADirectory` (the true `chdir` errno, matching `std` on Linux), and
+/// an unsearchable directory reports its `access` failure. Without this the
+/// spawn would return `Ok` and only the wrapper shell's `cd` would fail.
+fn check_detached_cwd(cwd: &Path) -> std::io::Result<()> {
+    match std::fs::metadata(cwd) {
+        Err(err) => {
+            return Err(std::io::Error::new(
+                err.kind(),
+                format!("detached spawn: bad cwd {}: {err}", cwd.display()),
+            ));
+        }
+        Ok(meta) if !meta.is_dir() => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotADirectory,
+                format!("detached spawn: bad cwd {}: Not a directory", cwd.display()),
+            ));
+        }
+        Ok(_) => {}
+    }
+    if let Err(errno) = nix::unistd::access(cwd, nix::unistd::AccessFlags::X_OK) {
+        return Err(std::io::Error::new(
+            std::io::Error::from(errno).kind(),
+            format!("detached spawn: bad cwd {}: {errno}", cwd.display()),
+        ));
+    }
+    Ok(())
+}
+
 /// Detached spawn: new session via `posix_spawn` + `POSIX_SPAWN_SETSID`.
 fn spawn_detached(params: &SpawnParams, stdio: &PipedStdio) -> std::io::Result<PipedChild> {
     let (program, args) = checked_argv(params)?;
-    if let Some(cwd) = params.cwd()
-        && let Err(err) = std::fs::metadata(cwd)
-    {
-        return Err(std::io::Error::new(
-            err.kind(),
-            format!("detached spawn: bad cwd {}: {err}", cwd.display()),
-        ));
+    if let Some(cwd) = params.cwd() {
+        check_detached_cwd(cwd)?;
     }
+    let merged = merged_env(params);
     // Spawn image and argv: direct, or via /bin/sh when a cwd override needs
     // a chdir that posix_spawn cannot express.
     let (path, argv): (CString, Vec<CString>) = match params.cwd() {
         None => {
+            let resolved = resolve_in_child_path(program, &merged)?;
             let mut argv = Vec::with_capacity(args.len() + 1);
             argv.push(cstr(program.as_bytes(), "argv element")?);
             for arg in args {
                 argv.push(cstr(arg.as_bytes(), "argv element")?);
             }
-            let path = argv[0].clone();
+            let path = cstr(resolved.as_os_str().as_bytes(), "resolved program")?;
             (path, argv)
         }
         Some(cwd) => {
@@ -832,7 +953,7 @@ fn spawn_detached(params: &SpawnParams, stdio: &PipedStdio) -> std::io::Result<P
             (path, argv)
         }
     };
-    let env = spawn_env(params)?;
+    let env = env_cstrings(&merged)?;
 
     let actions = nix::spawn::PosixSpawnFileActions::init()?;
     let mut wired = WireStdio::new(actions);
@@ -845,7 +966,10 @@ fn spawn_detached(params: &SpawnParams, stdio: &PipedStdio) -> std::io::Result<P
         POSIX_SPAWN_SETSID,
     ))?;
 
-    let pid = nix::spawn::posix_spawnp(&path, wired.inner(), &attr, &argv, &env)?;
+    // Plain `posix_spawn`: slashless programs were already resolved against
+    // the child's effective PATH (`posix_spawnp` would re-search with the
+    // *caller's* PATH); everything else is an explicit path already.
+    let pid = nix::spawn::posix_spawn(path.as_c_str(), wired.inner(), &attr, &argv, &env)?;
     let [stdin, stdout, stderr] = wired.take_parent_ends();
     Ok(PipedChild {
         pid: pid_to_u32(pid.as_raw()),
@@ -893,10 +1017,13 @@ impl WireStdio {
             Stdio::Null => {
                 // Opened via `nix`, not `std::fs::File::open` (workspace
                 // policy keeps blocking std opens out of library code).
+                // `O_CLOEXEC`: the dup2 target survives exec (dup2 clears
+                // the flag on the new fd) while the original is closed by
+                // it, so the child inherits no stray /dev/null fds.
                 let oflag = if fd == 0 {
-                    nix::fcntl::OFlag::O_RDONLY
+                    nix::fcntl::OFlag::O_RDONLY | nix::fcntl::OFlag::O_CLOEXEC
                 } else {
-                    nix::fcntl::OFlag::O_WRONLY
+                    nix::fcntl::OFlag::O_WRONLY | nix::fcntl::OFlag::O_CLOEXEC
                 };
                 let owned = nix::fcntl::open("/dev/null", oflag, nix::sys::stat::Mode::empty())?;
                 let null = std::fs::File::from(owned);
