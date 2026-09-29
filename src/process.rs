@@ -757,7 +757,7 @@ compile_error!("detached spawn: POSIX_SPAWN_SETSID value not verified for this t
 
 /// `/bin/sh` wrapper used only for detached spawn *with* cwd (`posix_spawn`
 /// has no chdir action): `$0` is the directory, the rest is the real argv.
-const DETACHED_CWD_SCRIPT: &str = "cd -- \"$0\" && shift && exec \"$@\"";
+const DETACHED_CWD_SCRIPT: &str = "cd -- \"$0\" && exec \"$@\"";
 
 /// Full child environment: parent entries plus overrides (overrides win).
 fn spawn_env(params: &SpawnParams) -> std::io::Result<Vec<CString>> {

@@ -77,7 +77,8 @@ fn cwd_override_moves_child_parent_stays() {
     let (out, status) = read_stdout_and_wait(&mut child).expect("drain");
     assert!(status.success());
     let expected = std::fs::canonicalize("/tmp").expect("canonicalize /tmp");
-    assert_eq!(out.trim(), expected.to_string_lossy());
+    let actual = std::fs::canonicalize(out.trim()).expect("canonicalize child pwd");
+    assert_eq!(actual, expected);
     assert_eq!(std::env::current_dir().expect("parent cwd"), before);
 }
 
@@ -234,7 +235,25 @@ fn detached_with_cwd_reports_new_dir() {
     let (out, status) = read_stdout_and_wait(&mut child).expect("drain");
     assert!(status.success());
     let expected = std::fs::canonicalize("/tmp").expect("canonicalize /tmp");
-    assert_eq!(out.trim(), expected.to_string_lossy());
+    let actual = std::fs::canonicalize(out.trim()).expect("canonicalize child pwd");
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn detached_with_cwd_preserves_argv_verbatim() {
+    // Regression: the /bin/sh cwd wrapper once ran `shift` before
+    // `exec "$@"`, but $0 (the directory) is not part of $@, so the shift
+    // dropped the real argv[0] and exec ran the wrong program. bash masked
+    // it for `sh -c pwd` (`exec -c` is a valid exec flag there); dash
+    // failed loudly. This multi-arg case fails on both shells pre-fix.
+    let params = SpawnParams::new("echo")
+        .args(["a b", "c*d"])
+        .current_dir("/tmp")
+        .detached(true);
+    let mut child = spawn_piped(&params, &piped_stdout()).expect("spawn detached echo");
+    let (out, status) = read_stdout_and_wait(&mut child).expect("drain");
+    assert!(status.success());
+    assert_eq!(out, "a b c*d\n");
 }
 
 #[test]
