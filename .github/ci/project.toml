@@ -10,7 +10,7 @@ default_dispatch_providers = ["github-hosted"]
 
 [analysis]
 method = "static-filesystem-and-manifest-inspection"
-detected = ["cargo-deny-policy", "cargo-lockfile", "cargo-nextest-policy", "rust-binaries:termpane-fuzz:1", "rust-features:termpane:2", "rust-test-targets:termpane:1", "rust-workspace-members:2"]
+detected = ["cargo-deny-policy", "cargo-lockfile", "cargo-nextest-policy", "rust-binaries:termpane-fuzz:1", "rust-features:termpane:4", "rust-test-targets:termpane:1", "rust-workspace-members:2"]
 limitations = ["Project code, build scripts, task runners, and commands are never executed during analysis.", "Release, signing, registry, deployment, branch-protection, and runner-capability contracts remain explicit manual inputs."]
 
 [workflow]

@@ -2,12 +2,12 @@
 schema = 2
 [inputs]
 config	5993eb4c20e08c6e
-scan	03de168b8d765e3f
+scan	638ceeb4bb20a49f
 generator	70
 [outputs]
 .github/AGENTS.md	02ebb7198c435e9b
 .github/actionlint.yaml	c642e98fce5b1906
-.github/ci/project.toml	83ef7e924348fcf9
+.github/ci/project.toml	7273f3bc90bc62d7
 .github/workflows/ci-main.yml	85e120f8ded95baf
 .github/workflows/ci-policy.yml	095de42e1abaf54e
 .github/workflows/ci-pr.yml	f742e1230a72e672
