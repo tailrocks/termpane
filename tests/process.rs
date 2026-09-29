@@ -53,6 +53,27 @@ fn read_stdout_and_wait(
     Ok((String::from_utf8_lossy(&bytes).into_owned(), status))
 }
 
+/// Block on `wait` off-thread; fail loudly instead of hanging the suite when
+/// the child never exits (the regression: wrapper-owned stdin withheld EOF).
+fn wait_bounded(
+    child: PipedChild,
+    timeout: Duration,
+) -> std::io::Result<termpane::process::ExitStatus> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut child = child;
+        let status = child.wait();
+        let sent = tx.send(status);
+        assert!(sent.is_ok(), "waiter outlived its receiver");
+    });
+    rx.recv_timeout(timeout).map_err(|err| {
+        std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            format!("wait() outlived its bound ({err:?}): wrapper-owned stdin was not closed"),
+        )
+    })?
+}
+
 #[test]
 fn piped_echo_reports_stdout_and_clean_exit() {
     let params = SpawnParams::new("echo").arg("hi");
@@ -474,6 +495,343 @@ fn kill_after_reap_is_safe_noop_on_both_paths() {
             child
                 .kill()
                 .expect("kill after reap is a safe no-op, like std");
+        }
+    }
+}
+
+#[test]
+fn wait_closes_untouched_stdin_on_both_paths() {
+    // `cat` with an untouched stdin pipe: pre-fix, `wait` deadlocked (our
+    // own held write end withheld the EOF `cat` waits for); now the
+    // wrapper-owned end closes first and `cat` exits cleanly. Bounded: a
+    // regression fails by timeout instead of hanging the suite.
+    for detached in [false, true] {
+        let params = SpawnParams::new("cat").detached(detached);
+        let stdio = PipedStdio::new().stdin(Stdio::Pipe);
+        let child = spawn_piped(&params, &stdio).expect("spawn cat");
+        let status = wait_bounded(child, Duration::from_secs(10)).expect("wait cat");
+        assert!(status.success(), "detached={detached}");
+    }
+}
+
+#[test]
+fn wait_after_write_and_drop_sees_eof_on_both_paths() {
+    for detached in [false, true] {
+        let params = SpawnParams::new("cat").detached(detached);
+        let stdio = PipedStdio::new().stdin(Stdio::Pipe).stdout(Stdio::Pipe);
+        let mut child = spawn_piped(&params, &stdio).expect("spawn cat");
+        let mut stdin = child.take_stdin().expect("stdin pipe");
+        stdin.write_all(b"hello").expect("write stdin");
+        drop(stdin);
+        let mut stdout = child.take_stdout().expect("stdout pipe");
+        let status = wait_bounded(child, Duration::from_secs(10)).expect("wait cat");
+        assert!(status.success(), "detached={detached}");
+        let mut out = String::new();
+        stdout.read_to_string(&mut out).expect("drain");
+        assert_eq!(out, "hello", "detached={detached}");
+    }
+}
+
+#[test]
+fn wait_keeps_caller_owned_writer_open_on_both_paths() {
+    // A taken stdin writer stays caller-owned: `wait` must block until the
+    // caller drops it, proving `wait` neither closed nor stole the handle.
+    for detached in [false, true] {
+        let params = SpawnParams::new("cat").detached(detached);
+        let stdio = PipedStdio::new().stdin(Stdio::Pipe);
+        let mut child = spawn_piped(&params, &stdio).expect("spawn cat");
+        let stdin = child.take_stdin().expect("stdin pipe");
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut child = child;
+            let sent = tx.send(child.wait());
+            assert!(sent.is_ok(), "waiter outlived its receiver");
+        });
+        match rx.recv_timeout(Duration::from_millis(500)) {
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            other => panic!(
+                "detached={detached}: wait() returned while caller-held stdin was still open: {other:?}"
+            ),
+        }
+        drop(stdin);
+        let status = rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("wait() never returned after stdin EOF")
+            .expect("wait cat");
+        assert!(status.success(), "detached={detached}");
+    }
+}
+
+#[test]
+fn signal_after_reap_is_not_found_on_both_paths() {
+    // A reaped pid may already belong to someone else: the handle must
+    // report NotFound without a syscall (the same no-target-after-reap rule
+    // as `kill`). Driven through both reapers on both paths.
+    for detached in [false, true] {
+        for reaper in ["wait", "try_wait"] {
+            let params = SpawnParams::new("true").detached(detached);
+            let mut child = spawn_piped(&params, &null_stdio()).expect("spawn");
+            if reaper == "wait" {
+                assert!(child.wait().expect("wait").success());
+            } else {
+                assert!(wait_via_try_wait(&mut child).expect("reap").success());
+            }
+            let pid = child.pid().expect("pid");
+            assert!(!pid_alive(pid), "reaped pid must be dead");
+            assert_eq!(
+                child.signal(SIGTERM),
+                Err(SignalError::NotFound { pid }),
+                "detached={detached} reaper={reaper}"
+            );
+        }
+    }
+    // Numeric validation still applies to live children (method level).
+    let params = SpawnParams::new("sleep").arg("30");
+    let mut child = spawn_piped(&params, &null_stdio()).expect("spawn sleep");
+    assert_eq!(
+        child.signal(999_999),
+        Err(SignalError::InvalidSignal(999_999))
+    );
+    child.kill().expect("kill");
+    assert_eq!(child.wait().expect("wait").signal(), Some("SIGKILL"));
+}
+
+#[test]
+fn signal_after_reap_never_hits_reused_pid() {
+    // PID-reuse control using only wrapper-owned children (never foreign
+    // pids): reap A, spawn B, and — whenever the kernel hands B the same pid
+    // — prove the stale handle cannot touch it.
+    for detached in [false, true] {
+        let params = SpawnParams::new("true").detached(detached);
+        let mut stale = spawn_piped(&params, &null_stdio()).expect("spawn A");
+        assert!(stale.wait().expect("reap A").success());
+        let pid_a = stale.pid().expect("pid A");
+
+        let params = SpawnParams::new("sleep").arg("30").detached(detached);
+        let mut control = spawn_piped(&params, &null_stdio()).expect("spawn B");
+        let pid_b = control.pid().expect("pid B");
+        assert_eq!(
+            stale.signal(SIGTERM),
+            Err(SignalError::NotFound { pid: pid_a }),
+            "detached={detached}"
+        );
+        if pid_a == pid_b {
+            // Strong branch: the pid is alive again under a new owner, and
+            // the stale handle left it alone.
+            assert!(
+                control.try_wait().expect("poll B").is_none(),
+                "detached={detached}: stale signal hit the reused pid"
+            );
+        }
+        control.kill().expect("kill B");
+        let status = control.wait().expect("reap B");
+        assert_eq!(status.signal(), Some("SIGKILL"), "detached={detached}");
+    }
+}
+
+#[test]
+fn spawn_missing_program_with_cwd_errors_on_both_paths() {
+    // Direct-exec contract for detached+cwd: a missing program fails the
+    // spawn (NotFound), not the wrapper shell (127 after Ok).
+    for detached in [false, true] {
+        let params = SpawnParams::new("tp2-no-such-program-xyz")
+            .current_dir("/tmp")
+            .detached(detached);
+        let err = spawn_piped(&params, &null_stdio()).expect_err("missing program must fail");
+        assert_eq!(
+            err.kind(),
+            std::io::ErrorKind::NotFound,
+            "detached={detached}"
+        );
+        // Slash programs too: absolute and cwd-relative.
+        for program in [
+            "/tp2-no-such-dir-xyz/tp2-no-such-bin",
+            "./tp2-no-such-bin-xyz",
+        ] {
+            let params = SpawnParams::new(program)
+                .current_dir("/tmp")
+                .detached(detached);
+            let err =
+                spawn_piped(&params, &null_stdio()).expect_err("missing slash program must fail");
+            assert_eq!(
+                err.kind(),
+                std::io::ErrorKind::NotFound,
+                "detached={detached} program={program}"
+            );
+        }
+    }
+}
+
+#[test]
+fn nonexec_target_with_cwd_reports_permission_denied_on_both_paths() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = std::env::temp_dir().join(format!("tp2-noexec-cwd-{}", own_pid()));
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    let tool = dir.join("tp2-noexec-xyz");
+    std::fs::write(&tool, "#!/bin/sh\necho noexec\n").expect("write tool");
+    std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o644)).expect("chmod");
+    for detached in [false, true] {
+        // Via child PATH ...
+        let params = SpawnParams::new("tp2-noexec-xyz")
+            .env("PATH", &dir)
+            .current_dir("/tmp")
+            .detached(detached);
+        let err = spawn_piped(&params, &null_stdio()).expect_err("unexecutable must fail");
+        assert_eq!(
+            err.kind(),
+            std::io::ErrorKind::PermissionDenied,
+            "detached={detached}"
+        );
+        // ... and via absolute path.
+        let params = SpawnParams::new(&tool)
+            .current_dir("/tmp")
+            .detached(detached);
+        let err = spawn_piped(&params, &null_stdio()).expect_err("unexecutable must fail");
+        assert_eq!(
+            err.kind(),
+            std::io::ErrorKind::PermissionDenied,
+            "detached={detached}"
+        );
+    }
+    std::fs::remove_file(&tool).expect("cleanup");
+    std::fs::remove_dir(&dir).expect("cleanup");
+}
+
+#[test]
+fn empty_path_resolves_nothing_on_both_paths() {
+    for detached in [false, true] {
+        for cwd in [None, Some("/tmp")] {
+            let mut params = SpawnParams::new("true").env("PATH", "").detached(detached);
+            if let Some(cwd) = cwd {
+                params = params.current_dir(cwd);
+            }
+            let err =
+                spawn_piped(&params, &null_stdio()).expect_err("empty PATH must resolve nothing");
+            assert_eq!(
+                err.kind(),
+                std::io::ErrorKind::NotFound,
+                "detached={detached} cwd={cwd:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn custom_path_with_cwd_resolves_against_child_cwd_on_both_paths() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = std::env::temp_dir().join(format!("tp2-pathcwd-{}", own_pid()));
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    let tool = dir.join("tp2-dot-xyz");
+    std::fs::write(&tool, "#!/bin/sh\necho dot-ok\n").expect("write tool");
+    std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    for detached in [false, true] {
+        // Absolute child-PATH entry plus an unrelated cwd.
+        let params = SpawnParams::new("tp2-dot-xyz")
+            .env("PATH", &dir)
+            .current_dir("/tmp")
+            .detached(detached);
+        let mut child = spawn_piped(&params, &piped_stdout()).expect("spawn via child PATH");
+        let (out, status) = read_stdout_and_wait(&mut child).expect("drain");
+        assert!(status.success(), "detached={detached}");
+        assert_eq!(out, "dot-ok\n", "detached={detached}");
+        // Empty component (`.`) resolves against the *child* cwd.
+        let params = SpawnParams::new("tp2-dot-xyz")
+            .env("PATH", ":/bin:/usr/bin")
+            .current_dir(&dir)
+            .detached(detached);
+        let mut child = spawn_piped(&params, &piped_stdout()).expect("spawn via dot PATH");
+        let (out, status) = read_stdout_and_wait(&mut child).expect("drain");
+        assert!(status.success(), "detached={detached}");
+        assert_eq!(out, "dot-ok\n", "detached={detached}");
+    }
+    std::fs::remove_file(&tool).expect("cleanup");
+    std::fs::remove_dir(&dir).expect("cleanup");
+}
+
+#[test]
+fn env_remove_drops_child_var_parent_untouched_on_both_paths() {
+    // `PATH` is inherited in every test environment and safe to probe (no
+    // parent mutation involved). Probed via `/usr/bin/env`, not the shell:
+    // `sh` re-installs a default `PATH` when none is inherited, which would
+    // mask the removal.
+    for detached in [false, true] {
+        let params = SpawnParams::new("/usr/bin/env")
+            .env_remove("PATH")
+            .detached(detached);
+        let mut child = spawn_piped(&params, &piped_stdout()).expect("spawn env");
+        let (out, status) = read_stdout_and_wait(&mut child).expect("drain");
+        assert!(status.success(), "detached={detached}");
+        assert!(
+            out.lines().all(|line| !line.starts_with("PATH=")),
+            "detached={detached}: PATH survived removal: {out:?}"
+        );
+
+        // Overrides win over removals for the same key (documented order).
+        let params = SpawnParams::new("/usr/bin/env")
+            .env_remove("PATH")
+            .env("PATH", "/custom-tp2")
+            .detached(detached);
+        let mut child = spawn_piped(&params, &piped_stdout()).expect("spawn env");
+        let (out, status) = read_stdout_and_wait(&mut child).expect("drain");
+        assert!(status.success(), "detached={detached}");
+        assert!(
+            out.lines().any(|line| line == "PATH=/custom-tp2"),
+            "detached={detached}: override lost: {out:?}"
+        );
+    }
+    assert!(std::env::var_os("PATH").is_some(), "parent PATH untouched");
+}
+
+#[test]
+fn env_clear_scrubs_child_parent_untouched_on_both_paths() {
+    for detached in [false, true] {
+        let params = SpawnParams::new("/usr/bin/env")
+            .env_clear()
+            .env("TP2_KEPT", "yes")
+            .detached(detached);
+        let mut child = spawn_piped(&params, &piped_stdout()).expect("spawn env");
+        let (out, status) = read_stdout_and_wait(&mut child).expect("drain");
+        assert!(status.success(), "detached={detached}");
+        assert_eq!(out, "TP2_KEPT=yes\n", "detached={detached}");
+    }
+    assert_eq!(std::env::var_os("TP2_KEPT"), None, "parent env untouched");
+}
+
+#[test]
+fn nul_in_removed_key_is_rejected_on_both_paths() {
+    for detached in [false, true] {
+        let params = SpawnParams::new("true")
+            .env_remove("a\0b")
+            .detached(detached);
+        let err = spawn_piped(&params, &null_stdio()).expect_err("NUL env key must fail");
+        assert_eq!(
+            err.kind(),
+            std::io::ErrorKind::InvalidInput,
+            "detached={detached}"
+        );
+    }
+}
+
+#[test]
+fn non_unicode_argv_passes_through_verbatim_on_spawn_matrix() {
+    use std::os::unix::ffi::OsStringExt as _;
+    let raw = vec![0x66, 0x6f, 0x6f, 0xff, 0xfe];
+    let arg = std::ffi::OsString::from_vec(raw.clone());
+    for detached in [false, true] {
+        for cwd in [None, Some("/tmp")] {
+            let mut params = SpawnParams::new("echo").arg(&arg).detached(detached);
+            if let Some(cwd) = cwd {
+                params = params.current_dir(cwd);
+            }
+            let mut child = spawn_piped(&params, &piped_stdout()).expect("spawn echo");
+            let mut out = child.take_stdout().expect("stdout pipe");
+            let mut bytes = Vec::new();
+            out.read_to_end(&mut bytes).expect("drain");
+            let status = child.wait().expect("wait");
+            assert!(status.success(), "detached={detached} cwd={cwd:?}");
+            let mut expected = raw.clone();
+            expected.push(b'\n');
+            assert_eq!(bytes, expected, "detached={detached} cwd={cwd:?}");
         }
     }
 }

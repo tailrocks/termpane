@@ -23,6 +23,14 @@ use std::sync::Mutex;
 /// racing another termpane spawn in a sibling thread (whose child would
 /// otherwise inherit the pipe end and suppress EOF). It doubles as the
 /// process-wide spawn serialization point alongside the PTY lifecycle guard.
+///
+/// CLOEXEC audit: on Linux the pipe is created with `pipe2(O_CLOEXEC)`, so
+/// the window does not exist at all. On macOS only termpane-internal spawns
+/// (piped and PTY, both taken under this lock) are covered; an *external*
+/// concurrent spawner (another crate calling `fork`/`posix_spawn` on a
+/// sibling thread) racing the `fcntl` window could leak a pipe end into its
+/// own child. That residual matches `std`'s posture on Apple targets (which
+/// does not even lock internal spawns) and cannot be closed without `pipe2`.
 pub(crate) static TRANSPORT_SPAWN_LOCK: Mutex<()> = Mutex::new(());
 
 /// Lock [`TRANSPORT_SPAWN_LOCK`], recovering from poison.
@@ -54,16 +62,20 @@ pub const SIGTERM: i32 = nix::sys::signal::Signal::SIGTERM as i32;
 // Spawn parameters
 // ---------------------------------------------------------------------------
 
-/// How to start a child process: argv, environment overrides, cwd, detach flag.
+/// How to start a child process: argv, environment edits, cwd, detach flag.
 ///
 /// Shared by piped spawn ([`spawn_piped`]) and PTY spawn
 /// ([`crate::pty::spawn_pty`]) so both transports agree on the vocabulary:
 ///
 /// - `argv` is passed verbatim (no shell, no splitting, no globbing).
-/// - The child inherits the parent environment plus these overrides; the
-///   parent environment is never modified. There is intentionally no
-///   unset/clear operation: fixtures that need scrubbed variables (e.g. temp
-///   `HOME`) express them as overrides.
+/// - The child environment starts from the parent environment, then applies
+///   the child-only edits in a fixed order: [`SpawnParams::env_clear`]
+///   first (drop every inherited entry), then [`SpawnParams::env_remove`]
+///   (drop the named keys), then [`SpawnParams::env`] overrides in
+///   insertion order (later entries win). A key that is both removed and
+///   overridden ends up overridden. The parent environment is never
+///   modified. Piped spawn honors all three edits; the PTY transport
+///   currently honors overrides only (clear/remove wiring lives with it).
 /// - `TERM` is *not* defaulted here: the caller sets it when the child needs
 ///   one (PTY sessions) and leaves piped children alone.
 /// - `cwd` defaults to inheriting the parent working directory.
@@ -74,6 +86,8 @@ pub const SIGTERM: i32 = nix::sys::signal::Signal::SIGTERM as i32;
 pub struct SpawnParams {
     argv: Vec<OsString>,
     env_overrides: Vec<(OsString, OsString)>,
+    env_removed: Vec<OsString>,
+    env_cleared: bool,
     cwd: Option<PathBuf>,
     detached: bool,
 }
@@ -85,6 +99,8 @@ impl SpawnParams {
         Self {
             argv: vec![program.into()],
             env_overrides: Vec::new(),
+            env_removed: Vec::new(),
+            env_cleared: false,
             cwd: None,
             detached: false,
         }
@@ -112,12 +128,40 @@ impl SpawnParams {
 
     /// Override (or add) one child-only environment variable.
     ///
-    /// Overrides win over inherited entries with the same key. Neither this
-    /// call nor the spawn touches the parent environment.
+    /// Overrides apply last (see the struct docs): they win over inherited
+    /// entries, over [`SpawnParams::env_clear`], and over
+    /// [`SpawnParams::env_remove`] for the same key. Neither this call nor
+    /// the spawn touches the parent environment.
     #[must_use]
     pub fn env(mut self, key: impl AsRef<OsStr>, value: impl AsRef<OsStr>) -> Self {
         self.env_overrides
             .push((key.as_ref().to_os_string(), value.as_ref().to_os_string()));
+        self
+    }
+
+    /// Drop every inherited variable from the child environment.
+    ///
+    /// Applies first (see the struct docs): removals and overrides still
+    /// apply on top of the cleared map, so `env_clear().env("A", "1")` runs
+    /// the child with exactly `A=1` (plus nothing else). Child-only; the
+    /// parent environment is never modified.
+    #[must_use]
+    pub fn env_clear(mut self) -> Self {
+        self.env_cleared = true;
+        self
+    }
+
+    /// Drop one inherited variable from the child environment.
+    ///
+    /// Applies after [`SpawnParams::env_clear`] and before
+    /// [`SpawnParams::env`] overrides: a removed-then-overridden key ends up
+    /// overridden, while an overridden-then-removed key (same key passed to
+    /// both calls, in any call order) is still overridden — removal only
+    /// drops *inherited* entries. Removing an absent key is a silent no-op.
+    /// Child-only; the parent environment is never modified.
+    #[must_use]
+    pub fn env_remove(mut self, key: impl AsRef<OsStr>) -> Self {
+        self.env_removed.push(key.as_ref().to_os_string());
         self
     }
 
@@ -148,6 +192,18 @@ impl SpawnParams {
     #[must_use]
     pub fn env_overrides(&self) -> &[(OsString, OsString)] {
         &self.env_overrides
+    }
+
+    /// Child-only environment removals, in insertion order.
+    #[must_use]
+    pub fn env_removed(&self) -> &[OsString] {
+        &self.env_removed
+    }
+
+    /// Whether the child environment drops every inherited entry.
+    #[must_use]
+    pub fn is_env_cleared(&self) -> bool {
+        self.env_cleared
     }
 
     /// Working directory override, if any.
@@ -525,10 +581,15 @@ pub fn current_uid() -> u32 {
 ///   and process group.
 /// - `detached == true`: the child starts a new session via `posix_spawn`
 ///   with `POSIX_SPAWN_SETSID` (`pgid == pid`, `sid == pid`), so it survives
-///   the parent and terminal hangup. `posix_spawn` has no chdir action, so a
-///   detached spawn *with* `cwd` runs through `/bin/sh -c 'cd ... &&
-///   exec ...'` (same pid, exact post-exec argv; the cwd is pre-validated so a
-///   missing directory fails the spawn instead of the shell).
+///   the parent and terminal hangup. `posix_spawn` has no chdir action and
+///   `nix` exposes no `addchdir`, so a detached spawn *with* `cwd` still
+///   execs through `/bin/sh -c 'cd ... && exec ...'` (same pid, exact
+///   post-exec argv) — but the direct-exec contract holds: the cwd is
+///   pre-validated and the program is pre-resolved against the child `PATH`
+///   relative to that cwd, so a missing directory, a missing program, or a
+///   non-executable target fails the spawn itself instead of the shell. Only
+///   a file swapped between validation and exec (TOCTOU) still surfaces as
+///   a shell exit status.
 ///
 /// Program lookup follows `execvp` rules in both paths: a name without a
 /// slash is resolved via the child's effective `PATH` (parent entries plus
@@ -536,8 +597,10 @@ pub fn current_uid() -> u32 {
 ///
 /// # Errors
 ///
-/// Returns [`std::io::Error`] when argv is empty, argv/env carries a NUL byte,
-/// the cwd is unusable, or the spawn syscalls fail (errno preserved).
+/// Returns [`std::io::Error`] when argv is empty, argv/env (including
+/// removed keys) carries a NUL byte, the cwd is unusable, the program cannot
+/// be resolved against the child `PATH`, or the spawn syscalls fail (errno
+/// preserved).
 pub fn spawn_piped(params: &SpawnParams, stdio: &PipedStdio) -> std::io::Result<PipedChild> {
     let _transport = lock_transport_spawn();
     if params.detached {
@@ -562,7 +625,10 @@ pub struct PipedChild {
 }
 
 enum PipedInner {
-    Std(std::process::Child),
+    Std {
+        child: std::process::Child,
+        done: Option<ExitStatus>,
+    },
     Detached {
         pid: nix::unistd::Pid,
         done: Option<ExitStatus>,
@@ -590,12 +656,24 @@ impl PipedChild {
 
     /// Poll for exit without blocking: `Ok(None)` means still running.
     ///
+    /// Never touches the stdin pipe: a nonblocking poll must not decide the
+    /// child's EOF for it.
+    ///
     /// # Errors
     ///
     /// Returns [`std::io::Error`] when the underlying wait fails.
     pub fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>> {
         match &mut self.inner {
-            PipedInner::Std(child) => Ok(child.try_wait()?.map(convert_std)),
+            PipedInner::Std { child, done } => {
+                if let Some(status) = done {
+                    return Ok(Some(status.clone()));
+                }
+                let status = child.try_wait()?.map(convert_std);
+                if let Some(status) = &status {
+                    *done = Some(status.clone());
+                }
+                Ok(status)
+            }
             PipedInner::Detached { pid, done } => {
                 if let Some(status) = done {
                     return Ok(Some(status.clone()));
@@ -614,6 +692,13 @@ impl PipedChild {
 
     /// Block until the child exits and return its status.
     ///
+    /// Closes the wrapper-owned stdin pipe first: a child blocked reading
+    /// stdin (e.g. `cat`) would otherwise deadlock against our wait, since
+    /// our own held write end withholds the EOF it is waiting for. Only the
+    /// still-owned end is closed — a writer taken via
+    /// [`PipedChild::take_stdin`] stays caller-owned, and `wait` blocks
+    /// until the caller drops it. [`PipedChild::try_wait`] never closes.
+    ///
     /// Repeatable: once reaped, the status is returned again without another
     /// syscall. Never call this on a PTY session's reader thread path — see
     /// the crate-level teardown notes in the consumer instead.
@@ -622,8 +707,16 @@ impl PipedChild {
     ///
     /// Returns [`std::io::Error`] when the underlying wait fails.
     pub fn wait(&mut self) -> std::io::Result<ExitStatus> {
+        drop(self.stdin.take());
         match &mut self.inner {
-            PipedInner::Std(child) => child.wait().map(convert_std),
+            PipedInner::Std { child, done } => {
+                if let Some(status) = done {
+                    return Ok(status.clone());
+                }
+                let status = convert_std(child.wait()?);
+                *done = Some(status.clone());
+                Ok(status)
+            }
             PipedInner::Detached { pid, done } => {
                 if let Some(status) = done {
                     return Ok(status.clone());
@@ -652,7 +745,7 @@ impl PipedChild {
     /// Returns [`std::io::Error`] when the underlying kill fails.
     pub fn kill(&mut self) -> std::io::Result<()> {
         match &mut self.inner {
-            PipedInner::Std(child) => child.kill(),
+            PipedInner::Std { child, .. } => child.kill(),
             PipedInner::Detached { pid, done } => {
                 if done.is_some() {
                     return Ok(());
@@ -665,10 +758,24 @@ impl PipedChild {
 
     /// Deliver `signo` to the child; see [`signal`].
     ///
+    /// Never targets the pid after the child was reaped (via [`PipedChild::wait`]
+    /// or [`PipedChild::try_wait`] on either path): the kernel may already
+    /// have recycled the pid for an unrelated process, so a reaped handle
+    /// reports [`SignalError::NotFound`] without a syscall. An exited but
+    /// still unreaped child keeps its pid (zombie), so signalling it stays a
+    /// harmless delivered-or-ESRCH round trip.
+    ///
     /// # Errors
     ///
-    /// Returns [`SignalError`] exactly like [`signal`].
+    /// Returns [`SignalError`] exactly like [`signal`], plus
+    /// [`SignalError::NotFound`] for a reaped child without signalling.
     pub fn signal(&self, signo: i32) -> Result<(), SignalError> {
+        let reaped = match &self.inner {
+            PipedInner::Std { done, .. } | PipedInner::Detached { done, .. } => done.is_some(),
+        };
+        if reaped {
+            return Err(SignalError::NotFound { pid: self.pid });
+        }
         signal(self.pid, signo)
     }
 
@@ -727,6 +834,9 @@ fn checked_argv(params: &SpawnParams) -> std::io::Result<(&OsStr, &[OsString])> 
         check_nul("env key", key)?;
         check_nul("env value", value)?;
     }
+    for key in params.env_removed() {
+        check_nul("env key", key)?;
+    }
     Ok((program, args))
 }
 
@@ -744,6 +854,12 @@ fn spawn_std(params: &SpawnParams, stdio: &PipedStdio) -> std::io::Result<PipedC
     let (program, args) = checked_argv(params)?;
     let mut cmd = std::process::Command::new(program);
     cmd.args(args);
+    if params.is_env_cleared() {
+        cmd.env_clear();
+    }
+    for key in params.env_removed() {
+        cmd.env_remove(key);
+    }
     for (key, value) in params.env_overrides() {
         cmd.env(key, value);
     }
@@ -769,7 +885,7 @@ fn spawn_std(params: &SpawnParams, stdio: &PipedStdio) -> std::io::Result<PipedC
         .map(|stderr| -> Box<dyn std::io::Read + Send> { Box::new(stderr) });
     Ok(PipedChild {
         pid,
-        inner: PipedInner::Std(child),
+        inner: PipedInner::Std { child, done: None },
         stdin,
         stdout,
         stderr,
@@ -791,9 +907,18 @@ compile_error!("detached spawn: POSIX_SPAWN_SETSID value not verified for this t
 /// has no chdir action): `$0` is the directory, the rest is the real argv.
 const DETACHED_CWD_SCRIPT: &str = "cd -- \"$0\" && exec \"$@\"";
 
-/// Full child environment: parent entries plus overrides (overrides win).
+/// Full child environment: parent entries (unless cleared), minus removals,
+/// plus overrides — in that order, mirroring the attached `std` application
+/// above so both paths agree byte for byte.
 fn merged_env(params: &SpawnParams) -> BTreeMap<OsString, OsString> {
-    let mut merged: BTreeMap<OsString, OsString> = std::env::vars_os().collect();
+    let mut merged: BTreeMap<OsString, OsString> = if params.is_env_cleared() {
+        BTreeMap::new()
+    } else {
+        std::env::vars_os().collect()
+    };
+    for key in params.env_removed() {
+        merged.remove(key);
+    }
     for (key, value) in params.env_overrides() {
         merged.insert(key.clone(), value.clone());
     }
@@ -815,9 +940,9 @@ fn env_cstrings(merged: &BTreeMap<OsString, OsString>) -> std::io::Result<Vec<CS
 
 /// `execvp`-style default search path, used only when the merged child
 /// environment has no `PATH` at all (the attached path then follows the
-/// libc default too). Mirrors `confstr(_CS_PATH)` on both of our targets;
-/// `SpawnParams` cannot unset variables, so this fires only when the parent
-/// itself runs without `PATH`.
+/// libc default too). Mirrors `confstr(_CS_PATH)` on both of our targets.
+/// Fires when the parent itself runs without `PATH`, or when the caller
+/// cleared/removed it via [`SpawnParams::env_clear`]/[`SpawnParams::env_remove`].
 const DEFAULT_CHILD_PATH: &str = "/bin:/usr/bin";
 
 /// Resolve a slashless `program` against the child's effective `PATH`.
@@ -848,50 +973,133 @@ fn resolve_in_child_path(
             OsStr::from_bytes(dir)
         };
         let candidate = Path::new(dir).join(program);
-        // Stat first: only an *existing* candidate can poison the outcome
-        // with `EACCES` (unexecutable file, directory, symlink to either).
-        // A failed stat (absent name, unsearchable PATH dir) just moves on,
-        // which is also how `execvp` keeps a broken PATH entry from masking
-        // a clean `ENOENT` for a mistyped name.
-        match std::fs::metadata(&candidate) {
-            Ok(meta) if meta.is_dir() => saw_eacces = true,
-            Ok(_) => match nix::unistd::access(&candidate, nix::unistd::AccessFlags::X_OK) {
-                Ok(()) => return Ok(candidate),
-                Err(_) => saw_eacces = true,
-            },
-            Err(_) => {}
+        match classify_candidate(&candidate) {
+            Candidate::Hit => return Ok(candidate),
+            Candidate::Poison => saw_eacces = true,
+            Candidate::Miss => {}
         }
     }
-    if saw_eacces {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::PermissionDenied,
-            format!(
-                "detached spawn: {}: Permission denied",
-                Path::new(program).display()
-            ),
-        ));
-    }
-    Err(std::io::Error::new(
-        std::io::ErrorKind::NotFound,
-        format!(
-            "detached spawn: {}: No such file or directory",
-            Path::new(program).display()
-        ),
-    ))
+    Err(search_failed(program, saw_eacces))
 }
 
-/// A pipe whose ends are close-on-exec (macOS has no atomic `pipe2`, hence
-/// the `fcntl`; callers hold [`TRANSPORT_SPAWN_LOCK`] across the window).
-fn cloexec_pipe() -> std::io::Result<(std::os::fd::OwnedFd, std::os::fd::OwnedFd)> {
-    use std::os::fd::AsFd as _;
-    let (read, write) = nix::unistd::pipe()?;
-    for end in [read.as_fd(), write.as_fd()] {
-        nix::fcntl::fcntl(
-            end,
-            nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::FD_CLOEXEC),
-        )?;
+/// What one `PATH` candidate (or one slash-program path) means for the search.
+enum Candidate {
+    /// Exists and is executable: the search stops here.
+    Hit,
+    /// Exists but cannot run (unexecutable file, directory, symlink to
+    /// either): poisons a failed search into `EACCES`, mirroring `execvp`.
+    Poison,
+    /// Failed stat (absent name, unsearchable dir): keep searching, so a
+    /// broken `PATH` entry never masks a clean `ENOENT` for a mistyped name.
+    Miss,
+}
+
+/// Stat first, then `X_OK`: only an *existing* candidate can poison the
+/// outcome; anything else just moves the search on.
+fn classify_candidate(candidate: &Path) -> Candidate {
+    match std::fs::metadata(candidate) {
+        Ok(meta) if meta.is_dir() => Candidate::Poison,
+        Ok(_) => match nix::unistd::access(candidate, nix::unistd::AccessFlags::X_OK) {
+            Ok(()) => Candidate::Hit,
+            Err(_) => Candidate::Poison,
+        },
+        Err(_) => Candidate::Miss,
     }
-    Ok((read, write))
+}
+
+/// Failed-search error: `EACCES` when any candidate existed but could not
+/// run, otherwise `ENOENT`.
+fn search_failed(program: &OsStr, saw_eacces: bool) -> std::io::Error {
+    let shown = Path::new(program).display();
+    if saw_eacces {
+        std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!("detached spawn: {shown}: Permission denied"),
+        )
+    } else {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("detached spawn: {shown}: No such file or directory"),
+        )
+    }
+}
+
+/// Pre-flight program check for the detached+cwd shell path.
+///
+/// The wrapper shell would turn a missing program into exit 127 and a
+/// non-executable one into exit 126 *after* a successful spawn; validating
+/// up front keeps the direct-exec contract (spawn-time `NotFound` /
+/// `PermissionDenied`, same as the attached path and the detached no-cwd
+/// path). Relative lookups run against the target `cwd` — the directory the
+/// shell will have `cd`'d to before `exec`, so empty `PATH` components and
+/// `./`-relative programs resolve exactly as the shell would resolve them.
+/// Only a file swapped between this check and the exec (TOCTOU) still
+/// surfaces as a shell exit status.
+fn check_program_under_cwd(
+    program: &OsStr,
+    merged: &BTreeMap<OsString, OsString>,
+    cwd: &Path,
+) -> std::io::Result<()> {
+    if program.as_bytes().contains(&b'/') {
+        let path = Path::new(program);
+        let candidate: PathBuf;
+        let candidate = if path.is_absolute() {
+            path
+        } else {
+            candidate = cwd.join(path);
+            &candidate
+        };
+        return match classify_candidate(candidate) {
+            Candidate::Hit => Ok(()),
+            Candidate::Poison => Err(search_failed(program, true)),
+            Candidate::Miss => Err(search_failed(program, false)),
+        };
+    }
+    let path_var = merged
+        .get(OsStr::new("PATH"))
+        .map_or(DEFAULT_CHILD_PATH.as_bytes(), |path| path.as_bytes());
+    let mut saw_eacces = false;
+    for dir in path_var.split(|byte| *byte == b':') {
+        let joined: PathBuf;
+        let dir = if dir.is_empty() {
+            cwd
+        } else {
+            let entry = Path::new(OsStr::from_bytes(dir));
+            if entry.is_absolute() {
+                entry
+            } else {
+                joined = cwd.join(entry);
+                &joined
+            }
+        };
+        match classify_candidate(&dir.join(program)) {
+            Candidate::Hit => return Ok(()),
+            Candidate::Poison => saw_eacces = true,
+            Candidate::Miss => {}
+        }
+    }
+    Err(search_failed(program, saw_eacces))
+}
+
+/// A pipe whose ends are close-on-exec: atomic `pipe2(O_CLOEXEC)` on Linux,
+/// `pipe` + `fcntl` on macOS (no `pipe2` there; callers hold
+/// [`TRANSPORT_SPAWN_LOCK`] across the window — see its CLOEXEC audit).
+fn cloexec_pipe() -> std::io::Result<(std::os::fd::OwnedFd, std::os::fd::OwnedFd)> {
+    #[cfg(target_os = "linux")]
+    let pair = nix::unistd::pipe2(nix::fcntl::OFlag::O_CLOEXEC)?;
+    #[cfg(not(target_os = "linux"))]
+    let pair = {
+        use std::os::fd::AsFd as _;
+        let (read, write) = nix::unistd::pipe()?;
+        for end in [read.as_fd(), write.as_fd()] {
+            nix::fcntl::fcntl(
+                end,
+                nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::FD_CLOEXEC),
+            )?;
+        }
+        (read, write)
+    };
+    Ok(pair)
 }
 
 /// Bytes to `CString`, failing cleanly on interior NUL.
@@ -937,7 +1145,13 @@ fn spawn_detached(params: &SpawnParams, stdio: &PipedStdio) -> std::io::Result<P
     }
     let merged = merged_env(params);
     // Spawn image and argv: direct, or via /bin/sh when a cwd override needs
-    // a chdir that posix_spawn cannot express.
+    // a chdir that posix_spawn cannot express. The shell branch pre-resolves
+    // the program against the child PATH relative to the target cwd, so a
+    // missing or non-executable target fails here (direct-exec contract)
+    // instead of surfacing as a shell 127/126 after a successful spawn.
+    if let Some(cwd) = params.cwd() {
+        check_program_under_cwd(program, &merged, cwd)?;
+    }
     let (path, argv): (CString, Vec<CString>) = match params.cwd() {
         None => {
             let resolved = resolve_in_child_path(program, &merged)?;
@@ -1095,8 +1309,53 @@ mod tests {
         let params = SpawnParams::new("true");
         assert_eq!(params.argv(), &[OsString::from("true")]);
         assert!(params.env_overrides().is_empty());
+        assert!(params.env_removed().is_empty());
+        assert!(!params.is_env_cleared());
         assert_eq!(params.cwd(), None);
         assert!(!params.is_detached());
+    }
+
+    #[test]
+    fn spawn_params_env_clear_and_remove_are_child_only_edits() {
+        let params = SpawnParams::new("true")
+            .env_clear()
+            .env_remove("TP2_GONE")
+            .env("TP2_KEPT", "1");
+        assert!(params.is_env_cleared());
+        assert_eq!(params.env_removed(), &[OsString::from("TP2_GONE")]);
+        assert_eq!(
+            params.env_overrides(),
+            &[(OsString::from("TP2_KEPT"), OsString::from("1"))]
+        );
+        // Builder calls never touch the parent environment.
+        assert_eq!(std::env::var_os("TP2_KEPT"), None);
+    }
+
+    #[test]
+    fn merged_env_applies_clear_then_remove_then_override() {
+        // `PATH` is inherited in every test environment; clearing must drop
+        // it, and an override must win over both clear and remove.
+        let cleared = SpawnParams::new("true").env_clear();
+        assert!(!merged_env(&cleared).contains_key(OsStr::new("PATH")));
+
+        let removed = SpawnParams::new("true").env_remove("PATH");
+        assert!(!merged_env(&removed).contains_key(OsStr::new("PATH")));
+
+        let overridden = SpawnParams::new("true")
+            .env_clear()
+            .env_remove("PATH")
+            .env("PATH", "/custom");
+        assert_eq!(
+            merged_env(&overridden).get(OsStr::new("PATH")),
+            Some(&OsString::from("/custom"))
+        );
+
+        // Removing an absent key is a silent no-op.
+        let noop = SpawnParams::new("true").env_remove("TP2_NO_SUCH_VAR_XYZ");
+        assert_eq!(
+            merged_env(&noop).get(OsStr::new("PATH")),
+            std::env::var_os("PATH").as_ref()
+        );
     }
 
     #[test]
