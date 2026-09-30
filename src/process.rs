@@ -74,8 +74,10 @@ pub const SIGTERM: i32 = nix::sys::signal::Signal::SIGTERM as i32;
 ///   (drop the named keys), then [`SpawnParams::env`] overrides in
 ///   insertion order (later entries win). A key that is both removed and
 ///   overridden ends up overridden. The parent environment is never
-///   modified. Piped spawn honors all three edits; the PTY transport
-///   currently honors overrides only (clear/remove wiring lives with it).
+///   modified. Both transports honor all three edits in this order; on the
+///   PTY path the backend always re-adds `SHELL` (see
+///   [`crate::pty::spawn_pty`]), so `env_clear` still leaves `SHELL` in the
+///   child and removing `SHELL` is ineffective — a `SHELL` override wins.
 /// - `TERM` is *not* defaulted here: the caller sets it when the child needs
 ///   one (PTY sessions) and leaves piped children alone.
 /// - `cwd` defaults to inheriting the parent working directory.

@@ -84,6 +84,70 @@ fn pty_env_override_visible_to_child() {
 }
 
 #[test]
+fn pty_env_clear_scrubs_child_except_backend_shell() {
+    // S9b: cleared child sees only the override plus the backend-imposed
+    // SHELL (portable-pty always re-adds it). Probed via /usr/bin/env by
+    // absolute path: with PATH gone, bare-name lookup cannot resolve.
+    // PTY output carries \r\n line endings; str::lines strips the \r.
+    assert!(std::env::var_os("PATH").is_some());
+    let params = SpawnParams::new("/usr/bin/env")
+        .env_clear()
+        .env("TP2_KEPT", "yes");
+    let (master, mut child) = spawn_pty(&params, 80, 24).expect("spawn pty env");
+    let out = drain_to_eof(master.try_clone_reader().expect("reader")).expect("drain");
+    assert!(child.wait().expect("wait").success());
+    let text = String::from_utf8_lossy(&out);
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(
+        lines.contains(&"TP2_KEPT=yes"),
+        "override lost in {lines:?}"
+    );
+    assert!(
+        lines.iter().all(|line| !line.starts_with("PATH=")),
+        "PATH survived clear in {lines:?}"
+    );
+    assert_eq!(
+        lines.len(),
+        2,
+        "cleared child must see exactly the override + SHELL, saw {lines:?}"
+    );
+    assert!(
+        lines.iter().any(|line| line.starts_with("SHELL=")),
+        "backend SHELL missing in {lines:?}"
+    );
+    assert_eq!(std::env::var_os("TP2_KEPT"), None, "parent env untouched");
+}
+
+#[test]
+fn pty_env_remove_drops_child_var_parent_untouched() {
+    // S9c: removal drops the inherited entry; an override for the same key
+    // wins (documented order). Via /usr/bin/env, not the shell: sh
+    // re-installs a default PATH when none is inherited, masking removal.
+    let params = SpawnParams::new("/usr/bin/env").env_remove("PATH");
+    let (master, mut child) = spawn_pty(&params, 80, 24).expect("spawn pty env");
+    let out = drain_to_eof(master.try_clone_reader().expect("reader")).expect("drain");
+    assert!(child.wait().expect("wait").success());
+    let text = String::from_utf8_lossy(&out);
+    assert!(
+        text.lines().all(|line| !line.starts_with("PATH=")),
+        "PATH survived removal: {text:?}"
+    );
+
+    let params = SpawnParams::new("/usr/bin/env")
+        .env_remove("PATH")
+        .env("PATH", "/custom-tp2");
+    let (master, mut child) = spawn_pty(&params, 80, 24).expect("spawn pty env");
+    let out = drain_to_eof(master.try_clone_reader().expect("reader")).expect("drain");
+    assert!(child.wait().expect("wait").success());
+    let text = String::from_utf8_lossy(&out);
+    assert!(
+        text.lines().any(|line| line == "PATH=/custom-tp2"),
+        "override lost: {text:?}"
+    );
+    assert!(std::env::var_os("PATH").is_some(), "parent PATH untouched");
+}
+
+#[test]
 fn pty_cwd_moves_child() {
     let params = SpawnParams::new("sh")
         .args(["-c", "pwd"])

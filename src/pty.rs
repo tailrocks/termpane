@@ -91,14 +91,26 @@ fn check_size(cols: u16, rows: u16) -> Result<(), PtyError> {
 }
 
 /// [`SpawnParams`] into a `portable-pty` command: verbatim argv, inherited
-/// environment plus overrides, optional cwd. `detached` is accepted and
-/// implied — PTY children always start a new session with a controlling
+/// environment plus the child-only edits in the documented order (clear,
+/// then removals, then overrides), optional cwd. `detached` is accepted
+/// and implied — PTY children always start a new session with a controlling
 /// terminal.
+///
+/// Backend caveat: `portable-pty` always sets `SHELL` at spawn (from the
+/// builder env, else the passwd-database shell), so `env_clear` still leaves
+/// `SHELL` in the child and `env_remove("SHELL")` is ineffective — but a
+/// `SHELL` override wins.
 fn command_builder(params: &SpawnParams) -> Result<portable_pty::CommandBuilder, PtyError> {
     if params.argv().is_empty() {
         return Err(PtyError::EmptyArgv);
     }
     let mut cmd = portable_pty::CommandBuilder::from_argv(params.argv().to_vec());
+    if params.is_env_cleared() {
+        cmd.env_clear();
+    }
+    for key in params.env_removed() {
+        cmd.env_remove(key);
+    }
     for (key, value) in params.env_overrides() {
         cmd.env(key, value);
     }
@@ -147,6 +159,12 @@ pub fn openpty(cols: u16, rows: u16) -> Result<(Master, Slave), PtyError> {
 /// before this returns, so the master reports EOF/EIO once the child exits
 /// instead of hanging (Linux holds EOF while any parent slave fd is open).
 /// Take the reader/writer from the [`Master`] before polling the child.
+///
+/// Environment: inherited entries plus the child-only edits in the
+/// [`SpawnParams`](crate::process::SpawnParams) order (clear, removals,
+/// overrides). Backend caveat: `portable-pty` always re-adds `SHELL` at
+/// spawn, so a cleared child still sees `SHELL`, removing `SHELL` is
+/// ineffective, and only a `SHELL` override changes it.
 ///
 /// # Errors
 ///
@@ -280,6 +298,9 @@ impl std::fmt::Debug for Slave {
 
 impl Slave {
     /// Spawn `params` into this PTY.
+    ///
+    /// Same environment contract as [`spawn_pty`]: clear, removals, then
+    /// overrides, except the backend always re-adds `SHELL`.
     ///
     /// # Errors
     ///
@@ -482,6 +503,31 @@ mod tests {
         );
         assert_eq!(cmd.get_env("TP2_PTY"), Some(std::ffi::OsStr::new("1")));
         assert_eq!(cmd.get_cwd(), Some(&std::ffi::OsString::from("/tmp")));
+    }
+
+    #[test]
+    fn env_clear_remove_override_forward_in_documented_order() {
+        // PATH is inherited in every test environment, so its absence
+        // proves the edit reached the builder (not a vacuous pass).
+        assert!(std::env::var_os("PATH").is_some());
+        let cleared = SpawnParams::new("true").env_clear().env("TP2_KEPT", "1");
+        let cmd = command_builder(&cleared).expect("valid params convert");
+        assert_eq!(cmd.get_env("PATH"), None);
+        assert_eq!(cmd.get_env("TP2_KEPT"), Some(std::ffi::OsStr::new("1")));
+
+        let removed = SpawnParams::new("true").env_remove("PATH");
+        let cmd = command_builder(&removed).expect("valid params convert");
+        assert_eq!(cmd.get_env("PATH"), None);
+
+        // Overrides win over removals for the same key.
+        let revived = SpawnParams::new("true")
+            .env_remove("PATH")
+            .env("PATH", "/custom-tp2");
+        let cmd = command_builder(&revived).expect("valid params convert");
+        assert_eq!(
+            cmd.get_env("PATH"),
+            Some(std::ffi::OsStr::new("/custom-tp2"))
+        );
     }
 
     #[test]
