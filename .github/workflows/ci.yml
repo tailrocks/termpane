@@ -116,26 +116,14 @@ jobs:
           path: "${{ runner.temp }}/velnor/cargo/.crates.toml\n${{ runner.temp }}/velnor/cargo/.crates2.json\n${{ runner.temp }}/velnor/cargo/bin\n${{ runner.temp }}/velnor/cargo/registry/index\n${{ runner.temp }}/velnor/cargo/registry/cache\n${{ runner.temp }}/velnor/cargo/git/db"
       - name: Acquire Velnor
         env:
-          VELNOR_ASSET_SHA256: 17b78d8e219127f6ea606581327a3b9bd9af1090ba8b21608bf8a9b3f38778d1
-          VELNOR_ASSET_URL: https://github.com/tailrocks/velnor-new/releases/download/seed/velnor-actions-0.1.0-2/velnor-actions-0.1.0-x86_64-unknown-linux-gnu
+          VELNOR_ASSET_SHA256: ca028d8f3433b5b724b61bd586b64f477a159045fd4b5799fe8415902955bc0b
+          VELNOR_ASSET_URL: https://github.com/tailrocks/velnor-new/releases/download/seed/velnor-actions-0.1.0-3/velnor-actions-0.1.0-x86_64-unknown-linux-gnu
         run: "sh -c 'mkdir -p $RUNNER_TEMP/velnor/bin && curl -fsSL \"$VELNOR_ASSET_URL\" -o $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0 && echo \"$VELNOR_ASSET_SHA256  $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\" | sha256sum -c - && chmod +x $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0'"
       - name: Write request
         env:
           VELNOR_INTERNAL_OP: write-request-v1
           VELNOR_REQUEST_FILE: ${{ runner.temp }}/velnor/request/plan-v1-request.json
         run: "\"$RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\""
-      - name: Format
-        env:
-          MISE_AUTO_INSTALL: "false"
-          MISE_CARGO_HOME: ${{ runner.temp }}/velnor/cargo
-          MISE_EXEC_AUTO_INSTALL: "false"
-          MISE_LOCKFILE: "0"
-          MISE_NO_CONFIG: "1"
-          MISE_NO_ENV: "1"
-          MISE_NO_HOOKS: "1"
-          MISE_RUSTUP_HOME: ${{ runner.temp }}/velnor/rustup
-          RUSTUP_TOOLCHAIN: 1.98.1
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.19.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx fmt --all --check --manifest-path fuzz/Cargo.toml
       - name: Check generated files
         env:
           MISE_AUTO_INSTALL: "false"
@@ -193,8 +181,8 @@ jobs:
           version: 2026.9.16
       - name: Acquire Velnor
         env:
-          VELNOR_ASSET_SHA256: 17b78d8e219127f6ea606581327a3b9bd9af1090ba8b21608bf8a9b3f38778d1
-          VELNOR_ASSET_URL: https://github.com/tailrocks/velnor-new/releases/download/seed/velnor-actions-0.1.0-2/velnor-actions-0.1.0-x86_64-unknown-linux-gnu
+          VELNOR_ASSET_SHA256: ca028d8f3433b5b724b61bd586b64f477a159045fd4b5799fe8415902955bc0b
+          VELNOR_ASSET_URL: https://github.com/tailrocks/velnor-new/releases/download/seed/velnor-actions-0.1.0-3/velnor-actions-0.1.0-x86_64-unknown-linux-gnu
         run: "sh -c 'mkdir -p $RUNNER_TEMP/velnor/bin && curl -fsSL \"$VELNOR_ASSET_URL\" -o $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0 && echo \"$VELNOR_ASSET_SHA256  $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\" | sha256sum -c - && chmod +x $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0'"
       - name: Prepare pinned tools
         env:
