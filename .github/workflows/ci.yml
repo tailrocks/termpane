@@ -116,8 +116,8 @@ jobs:
           path: "${{ runner.temp }}/velnor/cargo/.crates.toml\n${{ runner.temp }}/velnor/cargo/.crates2.json\n${{ runner.temp }}/velnor/cargo/bin\n${{ runner.temp }}/velnor/cargo/registry/index\n${{ runner.temp }}/velnor/cargo/registry/cache\n${{ runner.temp }}/velnor/cargo/git/db"
       - name: Acquire Velnor
         env:
-          VELNOR_ASSET_SHA256: fc2aba282ea44cb8ed64227601e034f02bc0d8912edb4a484bf0f0982f5971c9
-          VELNOR_ASSET_URL: https://github.com/tailrocks/velnor-new/releases/download/seed/velnor-actions-0.1.0/velnor-actions-0.1.0-x86_64-unknown-linux-gnu
+          VELNOR_ASSET_SHA256: 17b78d8e219127f6ea606581327a3b9bd9af1090ba8b21608bf8a9b3f38778d1
+          VELNOR_ASSET_URL: https://github.com/tailrocks/velnor-new/releases/download/seed/velnor-actions-0.1.0-2/velnor-actions-0.1.0-x86_64-unknown-linux-gnu
         run: "sh -c 'mkdir -p $RUNNER_TEMP/velnor/bin && curl -fsSL \"$VELNOR_ASSET_URL\" -o $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0 && echo \"$VELNOR_ASSET_SHA256  $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\" | sha256sum -c - && chmod +x $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0'"
       - name: Write request
         env:
@@ -193,8 +193,8 @@ jobs:
           version: 2026.9.16
       - name: Acquire Velnor
         env:
-          VELNOR_ASSET_SHA256: fc2aba282ea44cb8ed64227601e034f02bc0d8912edb4a484bf0f0982f5971c9
-          VELNOR_ASSET_URL: https://github.com/tailrocks/velnor-new/releases/download/seed/velnor-actions-0.1.0/velnor-actions-0.1.0-x86_64-unknown-linux-gnu
+          VELNOR_ASSET_SHA256: 17b78d8e219127f6ea606581327a3b9bd9af1090ba8b21608bf8a9b3f38778d1
+          VELNOR_ASSET_URL: https://github.com/tailrocks/velnor-new/releases/download/seed/velnor-actions-0.1.0-2/velnor-actions-0.1.0-x86_64-unknown-linux-gnu
         run: "sh -c 'mkdir -p $RUNNER_TEMP/velnor/bin && curl -fsSL \"$VELNOR_ASSET_URL\" -o $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0 && echo \"$VELNOR_ASSET_SHA256  $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\" | sha256sum -c - && chmod +x $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0'"
       - name: Prepare pinned tools
         env:
