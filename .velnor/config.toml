@@ -1,0 +1,33 @@
+schema = 1
+
+[workflow]
+policy = "consumer-v1"
+default_branch = "main"
+
+[stacks.rust]
+compile_driver = "mbx"
+test_runner = "cargo_nextest"
+
+[[stacks.rust.configurations]]
+name = "default"
+features = ["default"]
+target = "host"
+
+[[stacks.rust.configurations]]
+name = "full"
+features = ["process", "pty"]
+target = "host"
+
+[stacks.rust.release]
+enabled = true
+manifest_path = "Cargo.toml"
+packages = ["termpane"]
+environment = "crates-io"
+authentication = "bootstrap-token"
+release_pr = true
+tag_name = "{{ package }}-v{{ version }}"
+
+[stacks.rust.release.bootstrap]
+package = "termpane"
+version = "0.1.0"
+source_sha = "dc40286f9a8942f19f3a4cdebaaf1e18b7321709"
