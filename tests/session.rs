@@ -358,9 +358,11 @@ fn control_stays_responsive_during_output_flood() {
 #[test]
 fn kill_aborts_slow_write_to_non_reading_child() {
     // `sleep` never reads stdin while a 256 MiB write is in flight (seconds
-    // of `write` on macOS, which never blocks master writes; a hard block on
-    // Linux once the line discipline fills). A kill — the mechanism teardown
-    // relies on — must abort the in-flight write promptly on both.
+    // of `write`: neither platform blocks or fails these newline-free master
+    // writes — macOS never blocks them, and Linux keeps accepting bytes into
+    // the dead child's line discipline and discards them). A kill — the
+    // mechanism teardown relies on — must abort the in-flight write promptly
+    // on both, via the worker's per-chunk death poll.
     let session = spawn_session(&["sleep", "60"], false).unwrap();
     let big = vec![b'A'; 256 * 1024 * 1024];
     std::thread::scope(|scope| {

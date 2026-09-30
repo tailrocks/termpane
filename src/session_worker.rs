@@ -12,10 +12,11 @@
 //! - a separate **control channel** carrying only small handle ops, so
 //!   shutdown, resize, and observation bypass queued output entirely.
 //!
-//! Teardown never depends on either queue draining: it sets the shutdown flag,
-//! kills the child through the shared handle (which unblocks any in-flight
-//! PTY write with `EIO`), then joins both threads. Joins are real joins — a
-//! stuck thread is never detached.
+//! Teardown never depends on either queue draining: it sets the shutdown flag
+//! (which aborts an in-flight stdin write at the next 4 KiB chunk), kills the
+//! child through the shared handle (which unblocks an in-flight PTY read with
+//! `EIO`), then joins both threads. Joins are real joins — a stuck thread is
+//! never detached.
 //!
 //! F05 capture rules live here too: `Interrupted` reads are retried, only
 //! qualified platform EOF (`Ok(0)` / `EIO`) ends the stream, every other I/O
@@ -55,9 +56,10 @@ pub(crate) const DATA_QUEUE_BATCHES: usize = 8;
 /// at most this many queued output bytes before re-checking control, so a
 /// flooding child cannot starve shutdown/resize/observation.
 pub(crate) const FEED_BUDGET_PER_TICK: usize = 256 * 1024;
-/// Stdin/reply writes are chunked so the shutdown flag is re-checked at least
-/// this often; a single chunk write still blocks until the child reads, the
-/// child dies, or teardown kills it (kill unblocks with `EIO`).
+/// Stdin writes are chunked so the shutdown flag and child liveness are
+/// re-checked at least this often; a single chunk completes once the kernel
+/// accepts the bytes (on Linux that keeps succeeding after the child dies,
+/// so only the per-chunk checks abort the write — never the kill itself).
 pub(crate) const WRITE_CHUNK: usize = 4096;
 /// Default cap on stashed passthrough events (oldest dropped first, counted).
 pub(crate) const DEFAULT_EVENT_CAP: usize = 1024;
@@ -746,10 +748,13 @@ impl Worker {
         }
     }
 
-    /// Chunked stdin write with shutdown checks between chunks. One chunk
-    /// still blocks until the child reads, the child dies, or teardown kills
-    /// it (the kill unblocks the write with `EIO`); the flag checks keep a
-    /// large write cancellable at 4 KiB granularity past that.
+    /// Chunked stdin write with shutdown and child-liveness checks between
+    /// chunks. One chunk completes once the kernel accepts the bytes, which
+    /// on Linux keeps succeeding after the child dies (canonical mode
+    /// discards newline-free input past the line limit, and master writes to
+    /// a dead slave are accepted, never failed with `EIO`): a kill alone
+    /// neither fails nor interrupts the write. The per-chunk death poll keeps
+    /// a large write abortable at 4 KiB granularity past that.
     fn apply_write(&mut self, bytes: &[u8]) -> Result<(), ProcessError> {
         if self.exited.is_some() {
             return Err(ProcessError::ChildExited("child already exited".to_owned()));
@@ -757,14 +762,26 @@ impl Worker {
         if self.shutdown.load(Ordering::SeqCst) {
             return Err(ProcessError::Closed("session is closed".to_owned()));
         }
-        let writer = self
-            .writer
-            .as_mut()
-            .ok_or_else(|| ProcessError::Closed("stdin is closed".to_owned()))?;
+        if self.writer.is_none() {
+            return Err(ProcessError::Closed("stdin is closed".to_owned()));
+        }
         for chunk in bytes.chunks(WRITE_CHUNK) {
             if self.shutdown.load(Ordering::SeqCst) {
                 return Err(ProcessError::Closed("session is closed".to_owned()));
             }
+            if self.poll_exit_observed() {
+                return Err(ProcessError::ChildExited(
+                    "child exited during stdin write".to_owned(),
+                ));
+            }
+            // Re-borrowed per chunk: the liveness poll above needs `&mut self`.
+            // The writer cannot vanish mid-write (only this thread closes it),
+            // so `None` here is unreachable — but failing closed beats
+            // panicking if that ever changes.
+            let writer = self
+                .writer
+                .as_mut()
+                .ok_or_else(|| ProcessError::Closed("stdin is closed".to_owned()))?;
             writer
                 .write_all(chunk)
                 .map_err(|e| ProcessError::Io(format!("pty write failed: {e}")))?;
@@ -877,6 +894,21 @@ impl Worker {
         StreamState::Streaming
     }
 
+    /// Non-blocking reap poll that records the exit sighting. True once the
+    /// child has been reaped. A failed poll is transient (the next chunk or
+    /// tick retries); only a reaped status counts as a sighting.
+    fn poll_exit_observed(&mut self) -> bool {
+        if self.exited.is_some() {
+            return true;
+        }
+        if let Some(status) = self.killer.poll().ok().flatten() {
+            self.exited = Some(status);
+            self.exit_seen_at = Some(Instant::now());
+            return true;
+        }
+        false
+    }
+
     /// Reap promptly, but give trailing output `DRAIN_GRACE` after the child
     /// dies before publishing the final outcome. The grace is a deadline: if
     /// it expires first, the outcome records `DrainExpired`, never EOF.
@@ -884,15 +916,7 @@ impl Worker {
         if self.finalized {
             return;
         }
-        if self.exited.is_none() {
-            // A failed poll is transient (the backend retries next tick);
-            // only a reaped status counts as an exit sighting.
-            if let Some(status) = self.killer.poll().ok().flatten() {
-                self.exited = Some(status);
-                self.exit_seen_at = Some(Instant::now());
-            }
-        }
-        if self.exited.is_none() {
+        if !self.poll_exit_observed() {
             return;
         }
         let grace_over = self
@@ -1145,7 +1169,7 @@ impl Drop for StartupGuard {
             return;
         }
         // Same order as session teardown: flag first (aborts in-flight
-        // writes), then kill (unblocks the worker), then join, then reap.
+        // writes), then kill (unblocks the reader), then join, then reap.
         // Failures are unreportable from Drop; the spawn already failed with
         // the real error.
         self.shutdown.store(true, Ordering::SeqCst);

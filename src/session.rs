@@ -22,10 +22,11 @@
 //!
 //! [`PtySession::finish`] (graceful: EOF stdin, wait, reap) and
 //! [`PtySession::close`] (forceful, idempotent) return teardown errors.
-//! Teardown sets a shutdown flag, kills the child through the shared handle —
-//! which unblocks any in-flight PTY write with `EIO` — and then really joins
-//! both threads: a stuck thread is never detached. `Drop` runs the same
-//! teardown without double-panicking.
+//! Teardown sets a shutdown flag (which aborts an in-flight stdin write at
+//! the next 4 KiB chunk), kills the child through the shared handle — which
+//! unblocks an in-flight PTY read with `EIO` — and then really joins both
+//! threads: a stuck thread is never detached. `Drop` runs the same teardown
+//! without double-panicking.
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, mpsc};
@@ -555,10 +556,11 @@ impl PtySession {
 
     /// Write raw bytes to the child's stdin.
     ///
-    /// The write completes when the child consumes the bytes; it is chunked
-    /// so teardown stays responsive, but one chunk still blocks while the
-    /// child neither reads nor dies. Cancel via [`PtySession::close`]: the
-    /// teardown kill unblocks the write with an I/O error.
+    /// The write is chunked so it aborts promptly: a dead child fails it with
+    /// [`ProcessError::ChildExited`] at the next 4 KiB chunk (the kernel may
+    /// keep accepting bytes addressed at nobody — Linux does — so the worker
+    /// reap-polls rather than trusting the write to fail). Cancel via
+    /// [`PtySession::close`]: teardown aborts the write the same way.
     ///
     /// # Errors
     ///
@@ -759,9 +761,10 @@ impl PtySession {
         }
     }
 
-    /// Forceful idempotent teardown: flag the worker, kill a living child
-    /// (which unblocks any in-flight PTY I/O), reap, really join both threads.
-    /// Returns the first teardown error, if any.
+    /// Forceful idempotent teardown: flag the worker (which aborts an
+    /// in-flight stdin write), kill a living child (which unblocks an
+    /// in-flight PTY read), reap, really join both threads. Returns the first
+    /// teardown error, if any.
     ///
     /// # Errors
     ///
@@ -792,7 +795,7 @@ impl PtySession {
     /// Run teardown exactly once; never panics (safe from `Drop`).
     ///
     /// Kill-first discipline: the shutdown flag aborts in-flight writes, the
-    /// kill unblocks any PTY read/write sitting in the kernel with EOF/`EIO`,
+    /// kill unblocks any PTY read sitting in the kernel with EOF/`EIO`,
     /// and only then are the threads joined — really joined, never detached.
     /// After the worker is gone the child is reaped here (normally a cached
     /// no-op: the worker already reaped it).
