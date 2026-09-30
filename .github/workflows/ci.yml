@@ -27,15 +27,15 @@ jobs:
         with:
           persist-credentials: "false"
       - name: Setup Mise
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5
         with:
           cache: "true"
-          cache_key: mise-v1-x86_64-unknown-linux-gnu-2026.9.16-75c77caa4018556f
-          cache_save: "true"
+          cache_key: mise-v1-x86_64-unknown-linux-gnu-2026.9.18-75c77caa4018556f
+          cache_save: ${{ github.event_name == 'push' }}
           env: "false"
           install: "false"
-          sha256: b6f8757201f6a2ee799f45f3f52ef7ca0b4071523637dc3b0b24264dd3333518
-          version: 2026.9.16
+          sha256: d24fe0bf7e613824ad99f7b8dac3f2b381a37b9f75f84dd250855217095a8de4
+          version: 2026.9.18
       - name: Run actionlint
         run: mise --no-config --no-env --no-hooks exec actionlint@1.7.12 shellcheck@0.11.0 -- actionlint -color
   plan:
@@ -48,15 +48,15 @@ jobs:
           fetch-depth: "0"
           persist-credentials: "false"
       - name: Setup Mise
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5
         with:
           cache: "true"
-          cache_key: mise-v1-x86_64-unknown-linux-gnu-2026.9.16-e9592c9b35b763fa
-          cache_save: "true"
+          cache_key: mise-v1-x86_64-unknown-linux-gnu-2026.9.18-6270601fa454da91
+          cache_save: ${{ github.event_name == 'push' }}
           env: "false"
           install: "false"
-          sha256: b6f8757201f6a2ee799f45f3f52ef7ca0b4071523637dc3b0b24264dd3333518
-          version: 2026.9.16
+          sha256: d24fe0bf7e613824ad99f7b8dac3f2b381a37b9f75f84dd250855217095a8de4
+          version: 2026.9.18
       - name: Prepare pinned tools
         env:
           MISE_CARGO_HOME: ${{ runner.temp }}/velnor/cargo
@@ -66,7 +66,7 @@ jobs:
           MISE_NO_HOOKS: "1"
           MISE_RUSTUP_HOME: ${{ runner.temp }}/velnor/rustup
           RUSTUP_TOOLCHAIN: 1.98.1
-        run: mise --no-config --no-env --no-hooks install rust@1.98.1 mr-boxington@1.19.0 actionlint@1.7.12 shellcheck@0.11.0 zizmor@1.30.1 aqua:nextest-rs/nextest/cargo-nextest@0.9.146
+        run: mise --no-config --no-env --no-hooks install rust@1.98.1 mr-boxington@1.21.0 actionlint@1.7.12 shellcheck@0.11.0 zizmor@1.30.1 aqua:nextest-rs/nextest/cargo-nextest@0.9.146
       - name: Prepare Rust components
         env:
           MISE_AUTO_INSTALL: "false"
@@ -110,14 +110,15 @@ jobs:
           RUSTUP_TOOLCHAIN: 1.98.1
         run: "sh -c 'if mise --no-config --no-env --no-hooks exec rust@1.98.1 -- cargo metadata --locked --offline --manifest-path '\\''fuzz/Cargo.toml'\\'' >/dev/null 2>&1; then echo \"velnor: sources hit, skipping fetch\"; else echo \"velnor: sources miss (source_missing), fetching\"; mise --no-config --no-env --no-hooks exec rust@1.98.1 -- cargo fetch --locked --manifest-path '\\''fuzz/Cargo.toml'\\''; fi'"
       - name: Save Cargo sources
+        if: github.event_name == 'push'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           key: velnor-v1-sources-x86_64-unknown-linux-gnu-1.98.1-${{hashFiles('Cargo.lock','fuzz/Cargo.lock')}}
           path: "${{ runner.temp }}/velnor/cargo/.crates.toml\n${{ runner.temp }}/velnor/cargo/.crates2.json\n${{ runner.temp }}/velnor/cargo/bin\n${{ runner.temp }}/velnor/cargo/registry/index\n${{ runner.temp }}/velnor/cargo/registry/cache\n${{ runner.temp }}/velnor/cargo/git/db"
       - name: Acquire Velnor
         env:
-          VELNOR_ASSET_SHA256: ca028d8f3433b5b724b61bd586b64f477a159045fd4b5799fe8415902955bc0b
-          VELNOR_ASSET_URL: https://github.com/tailrocks/velnor-new/releases/download/seed/velnor-actions-0.1.0-3/velnor-actions-0.1.0-x86_64-unknown-linux-gnu
+          VELNOR_ASSET_SHA256: 82668409c370cfa08cbe1712267eb794529afcd3d90204f3815df3989c449d7c
+          VELNOR_ASSET_URL: https://github.com/tailrocks/velnor-new/releases/download/seed/velnor-actions-0.1.0-4/velnor-actions-0.1.0-x86_64-unknown-linux-gnu
         run: "sh -c 'mkdir -p $RUNNER_TEMP/velnor/bin && curl -fsSL \"$VELNOR_ASSET_URL\" -o $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0 && echo \"$VELNOR_ASSET_SHA256  $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\" | sha256sum -c - && chmod +x $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0'"
       - name: Write request
         env:
@@ -170,19 +171,19 @@ jobs:
     if: always()
     steps:
       - name: Setup Mise
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5
         with:
           cache: "true"
-          cache_key: mise-v1-x86_64-unknown-linux-gnu-2026.9.16-976d3023f73c2670
-          cache_save: "true"
+          cache_key: mise-v1-x86_64-unknown-linux-gnu-2026.9.18-14ee3a9bbb90604c
+          cache_save: ${{ github.event_name == 'push' }}
           env: "false"
           install: "false"
-          sha256: b6f8757201f6a2ee799f45f3f52ef7ca0b4071523637dc3b0b24264dd3333518
-          version: 2026.9.16
+          sha256: d24fe0bf7e613824ad99f7b8dac3f2b381a37b9f75f84dd250855217095a8de4
+          version: 2026.9.18
       - name: Acquire Velnor
         env:
-          VELNOR_ASSET_SHA256: ca028d8f3433b5b724b61bd586b64f477a159045fd4b5799fe8415902955bc0b
-          VELNOR_ASSET_URL: https://github.com/tailrocks/velnor-new/releases/download/seed/velnor-actions-0.1.0-3/velnor-actions-0.1.0-x86_64-unknown-linux-gnu
+          VELNOR_ASSET_SHA256: 82668409c370cfa08cbe1712267eb794529afcd3d90204f3815df3989c449d7c
+          VELNOR_ASSET_URL: https://github.com/tailrocks/velnor-new/releases/download/seed/velnor-actions-0.1.0-4/velnor-actions-0.1.0-x86_64-unknown-linux-gnu
         run: "sh -c 'mkdir -p $RUNNER_TEMP/velnor/bin && curl -fsSL \"$VELNOR_ASSET_URL\" -o $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0 && echo \"$VELNOR_ASSET_SHA256  $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\" | sha256sum -c - && chmod +x $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0'"
       - name: Prepare pinned tools
         env:
@@ -193,7 +194,7 @@ jobs:
           MISE_NO_HOOKS: "1"
           MISE_RUSTUP_HOME: ${{ runner.temp }}/velnor/rustup
           RUSTUP_TOOLCHAIN: 1.98.1
-        run: mise --no-config --no-env --no-hooks install gh@2.101.0
+        run: mise --no-config --no-env --no-hooks install gh@2.102.0
       - name: Download plan
         continue-on-error: true
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -237,15 +238,25 @@ jobs:
         with:
           persist-credentials: "false"
       - name: Setup Mise
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5
         with:
           cache: "true"
-          cache_key: mise-v1-x86_64-unknown-linux-gnu-2026.9.16-e9592c9b35b763fa
-          cache_save: "true"
+          cache_key: mise-v1-x86_64-unknown-linux-gnu-2026.9.18-6270601fa454da91
+          cache_save: ${{ github.event_name == 'push' }}
           env: "false"
           install: "false"
-          sha256: b6f8757201f6a2ee799f45f3f52ef7ca0b4071523637dc3b0b24264dd3333518
-          version: 2026.9.16
+          sha256: d24fe0bf7e613824ad99f7b8dac3f2b381a37b9f75f84dd250855217095a8de4
+          version: 2026.9.18
+      - name: Acquire Velnor
+        env:
+          VELNOR_ASSET_SHA256: 82668409c370cfa08cbe1712267eb794529afcd3d90204f3815df3989c449d7c
+          VELNOR_ASSET_URL: https://github.com/tailrocks/velnor-new/releases/download/seed/velnor-actions-0.1.0-4/velnor-actions-0.1.0-x86_64-unknown-linux-gnu
+        run: "sh -c 'mkdir -p $RUNNER_TEMP/velnor/bin && curl -fsSL \"$VELNOR_ASSET_URL\" -o $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0 && echo \"$VELNOR_ASSET_SHA256  $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\" | sha256sum -c - && chmod +x $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0'"
+      - name: Download plan
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: velnor-plan-r${{ github.run_id }}-a${{ github.run_attempt }}
+          path: ${{ runner.temp }}/velnor/r${{ github.run_id }}-a${{ github.run_attempt }}
       - name: Prepare pinned tools
         env:
           MISE_CARGO_HOME: ${{ runner.temp }}/velnor/cargo
@@ -255,7 +266,7 @@ jobs:
           MISE_NO_HOOKS: "1"
           MISE_RUSTUP_HOME: ${{ runner.temp }}/velnor/rustup
           RUSTUP_TOOLCHAIN: 1.98.1
-        run: mise --no-config --no-env --no-hooks install rust@1.98.1 mr-boxington@1.19.0 actionlint@1.7.12 shellcheck@0.11.0 zizmor@1.30.1 aqua:nextest-rs/nextest/cargo-nextest@0.9.146
+        run: mise --no-config --no-env --no-hooks install rust@1.98.1 mr-boxington@1.21.0 actionlint@1.7.12 shellcheck@0.11.0 zizmor@1.30.1 aqua:nextest-rs/nextest/cargo-nextest@0.9.146
       - name: Prepare Rust components
         env:
           MISE_AUTO_INSTALL: "false"
@@ -278,7 +289,7 @@ jobs:
         uses: jdx/mr-boxington-action@9df1d4b18b2147788a7ee7a2c7b84ecf62fd89d3
         with:
           github-cache-mode: objects
-          version: 1.19.0
+          version: 1.21.0
       - name: Fetch Cargo sources
         env:
           MISE_AUTO_INSTALL: "false"
@@ -314,11 +325,12 @@ jobs:
           MISE_NO_HOOKS: "1"
           MISE_RUSTUP_HOME: ${{ runner.temp }}/velnor/rustup
           RUSTUP_TOOLCHAIN: 1.98.1
+          VELNOR_DOWNSTREAM_TASK_IDS: stack/rust/root/clippy/default,stack/rust/root/build/default,stack/rust/root/nextest/default,stack/rust/root/doctest/default,stack/rust/root/doc/default
           VELNOR_MATRIX_ID: stack:rust|task:stack/rust/root/fmt/default
           VELNOR_MATRIX_KEY: m-5ad2a24fe1a24e38
-          VELNOR_TASK_DIGEST: b3-432a7fdd075a18ca676d951e2d97e0f448581ef1a7c9dd04bd8c70ff555ea13c
+          VELNOR_TASK_DIGEST: b3-f2efc1fcb34fd91079c0c149bf235c99b079187c2a07455c51bef6761d643f59
           VELNOR_TASK_ID: stack/rust/root/fmt/default
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.19.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx fmt --check --manifest-path Cargo.toml
+        run: "sh -c 'mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.21.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx fmt --check --manifest-path Cargo.toml; code=$?; VELNOR_EXIT_CODE=\"$code\" VELNOR_INTERNAL_OP=write-task-report-v1 \"$RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\"; helper_code=$?; if [ \"$code\" -ne 0 ]; then exit \"$code\"; fi; exit \"$helper_code\"'"
       - name: Clippy
         env:
           MISE_AUTO_INSTALL: "false"
@@ -330,11 +342,12 @@ jobs:
           MISE_NO_HOOKS: "1"
           MISE_RUSTUP_HOME: ${{ runner.temp }}/velnor/rustup
           RUSTUP_TOOLCHAIN: 1.98.1
+          VELNOR_DOWNSTREAM_TASK_IDS: stack/rust/root/build/default,stack/rust/root/nextest/default,stack/rust/root/doctest/default,stack/rust/root/doc/default
           VELNOR_MATRIX_ID: stack:rust|task:stack/rust/root/clippy/default
           VELNOR_MATRIX_KEY: m-ef27644090a4cf0f
-          VELNOR_TASK_DIGEST: b3-779659ef1f81d335c119f0bc1bf4dabec43b6f68e933e6b70823e4e4bc588156
+          VELNOR_TASK_DIGEST: b3-84c5d8866a2aceaee54ac0266a7ef131f8dbec81b4fa776909a6eaa2e328dd15
           VELNOR_TASK_ID: stack/rust/root/clippy/default
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.19.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx clippy --locked --offline --manifest-path Cargo.toml --package termpane --all-targets -- -D warnings
+        run: "sh -c 'mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.21.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx clippy --locked --offline --manifest-path Cargo.toml --package termpane --all-targets -- -D warnings; code=$?; VELNOR_EXIT_CODE=\"$code\" VELNOR_INTERNAL_OP=write-task-report-v1 \"$RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\"; helper_code=$?; if [ \"$code\" -ne 0 ]; then exit \"$code\"; fi; exit \"$helper_code\"'"
       - name: Build test executables
         env:
           MISE_AUTO_INSTALL: "false"
@@ -346,11 +359,12 @@ jobs:
           MISE_NO_HOOKS: "1"
           MISE_RUSTUP_HOME: ${{ runner.temp }}/velnor/rustup
           RUSTUP_TOOLCHAIN: 1.98.1
+          VELNOR_DOWNSTREAM_TASK_IDS: stack/rust/root/nextest/default,stack/rust/root/doctest/default,stack/rust/root/doc/default
           VELNOR_MATRIX_ID: stack:rust|task:stack/rust/root/build/default
           VELNOR_MATRIX_KEY: m-9f41ea1f8f3bb143
-          VELNOR_TASK_DIGEST: b3-7f104631ff4bf3f3f1a13717985912c63a859f5c906cf79d92526772d8598b38
+          VELNOR_TASK_DIGEST: b3-c6de13596a9916b2dd7bd1562bb1a7babdfb0f9c035d57df98c02f73b43ba7ed
           VELNOR_TASK_ID: stack/rust/root/build/default
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.19.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx build --locked --offline --manifest-path Cargo.toml --package termpane
+        run: "sh -c 'mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.21.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx build --locked --offline --manifest-path Cargo.toml --package termpane; code=$?; VELNOR_EXIT_CODE=\"$code\" VELNOR_INTERNAL_OP=write-task-report-v1 \"$RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\"; helper_code=$?; if [ \"$code\" -ne 0 ]; then exit \"$code\"; fi; exit \"$helper_code\"'"
       - name: Unit and integration tests
         env:
           MISE_AUTO_INSTALL: "false"
@@ -362,11 +376,12 @@ jobs:
           MISE_NO_HOOKS: "1"
           MISE_RUSTUP_HOME: ${{ runner.temp }}/velnor/rustup
           RUSTUP_TOOLCHAIN: 1.98.1
+          VELNOR_DOWNSTREAM_TASK_IDS: stack/rust/root/doctest/default,stack/rust/root/doc/default
           VELNOR_MATRIX_ID: stack:rust|task:stack/rust/root/nextest/default
           VELNOR_MATRIX_KEY: m-ef8115be6522bff0
-          VELNOR_TASK_DIGEST: b3-c3020c0671f2f6edd9e9f29819183d8c5bcb9fdb85f9747b2e112fffcaaecbf4
+          VELNOR_TASK_DIGEST: b3-c04faf21129071b3752ed27557f1c75fed829305d0ec1423f1d71996da4f2e9d
           VELNOR_TASK_ID: stack/rust/root/nextest/default
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.19.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx nextest run --profile ci --locked --offline --manifest-path Cargo.toml --package termpane --no-tests fail
+        run: "sh -c 'mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.21.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx nextest run --profile ci --locked --offline --manifest-path Cargo.toml --package termpane --no-tests fail; code=$?; VELNOR_EXIT_CODE=\"$code\" VELNOR_INTERNAL_OP=write-task-report-v1 \"$RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\"; helper_code=$?; if [ \"$code\" -ne 0 ]; then exit \"$code\"; fi; exit \"$helper_code\"'"
       - name: Doctests
         env:
           MISE_AUTO_INSTALL: "false"
@@ -378,11 +393,12 @@ jobs:
           MISE_NO_HOOKS: "1"
           MISE_RUSTUP_HOME: ${{ runner.temp }}/velnor/rustup
           RUSTUP_TOOLCHAIN: 1.98.1
+          VELNOR_DOWNSTREAM_TASK_IDS: stack/rust/root/doc/default
           VELNOR_MATRIX_ID: stack:rust|task:stack/rust/root/doctest/default
           VELNOR_MATRIX_KEY: m-55d9e893afdceb78
-          VELNOR_TASK_DIGEST: b3-4b9aea5e0cce53afca2780ca471b42e2e05e514f8ddf873d7676c8a70d71e982
+          VELNOR_TASK_DIGEST: b3-8334088d163c3e792e4e684ca5108486961164e6f0b12a123de84551679e2c6d
           VELNOR_TASK_ID: stack/rust/root/doctest/default
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.19.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx test --locked --offline --manifest-path Cargo.toml --package termpane --doc
+        run: "sh -c 'mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.21.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx test --locked --offline --manifest-path Cargo.toml --package termpane --doc; code=$?; VELNOR_EXIT_CODE=\"$code\" VELNOR_INTERNAL_OP=write-task-report-v1 \"$RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\"; helper_code=$?; if [ \"$code\" -ne 0 ]; then exit \"$code\"; fi; exit \"$helper_code\"'"
       - name: Documentation
         env:
           MISE_AUTO_INSTALL: "false"
@@ -396,9 +412,51 @@ jobs:
           RUSTUP_TOOLCHAIN: 1.98.1
           VELNOR_MATRIX_ID: stack:rust|task:stack/rust/root/doc/default
           VELNOR_MATRIX_KEY: m-497a92f01446c409
-          VELNOR_TASK_DIGEST: b3-2b48ded71cffd4172405a95af66ee09b6b810eadb1e2e743ded9e51302b4a91c
+          VELNOR_TASK_DIGEST: b3-3eb868d5593303b7c6d8de2e23aef7bd763d4d3647a942288f54563bf486024c
           VELNOR_TASK_ID: stack/rust/root/doc/default
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.19.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx doc --locked --offline --manifest-path Cargo.toml --package termpane --no-deps
+        run: "sh -c 'mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.21.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx doc --locked --offline --manifest-path Cargo.toml --package termpane --no-deps; code=$?; VELNOR_EXIT_CODE=\"$code\" VELNOR_INTERNAL_OP=write-task-report-v1 \"$RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\"; helper_code=$?; if [ \"$code\" -ne 0 ]; then exit \"$code\"; fi; exit \"$helper_code\"'"
+      - name: Upload matrix report (Format)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          if-no-files-found: error
+          name: velnor-matrix-r${{ github.run_id }}-a${{ github.run_attempt }}-m-5ad2a24fe1a24e38
+          path: ${{ runner.temp }}/velnor/r${{ github.run_id }}-a${{ github.run_attempt }}/m-5ad2a24fe1a24e38
+      - name: Upload matrix report (Clippy)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          if-no-files-found: error
+          name: velnor-matrix-r${{ github.run_id }}-a${{ github.run_attempt }}-m-ef27644090a4cf0f
+          path: ${{ runner.temp }}/velnor/r${{ github.run_id }}-a${{ github.run_attempt }}/m-ef27644090a4cf0f
+      - name: Upload matrix report (Build test executables)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          if-no-files-found: error
+          name: velnor-matrix-r${{ github.run_id }}-a${{ github.run_attempt }}-m-9f41ea1f8f3bb143
+          path: ${{ runner.temp }}/velnor/r${{ github.run_id }}-a${{ github.run_attempt }}/m-9f41ea1f8f3bb143
+      - name: Upload matrix report (Unit and integration tests)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          if-no-files-found: error
+          name: velnor-matrix-r${{ github.run_id }}-a${{ github.run_attempt }}-m-ef8115be6522bff0
+          path: ${{ runner.temp }}/velnor/r${{ github.run_id }}-a${{ github.run_attempt }}/m-ef8115be6522bff0
+      - name: Upload matrix report (Doctests)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          if-no-files-found: error
+          name: velnor-matrix-r${{ github.run_id }}-a${{ github.run_attempt }}-m-55d9e893afdceb78
+          path: ${{ runner.temp }}/velnor/r${{ github.run_id }}-a${{ github.run_attempt }}/m-55d9e893afdceb78
+      - name: Upload matrix report (Documentation)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          if-no-files-found: error
+          name: velnor-matrix-r${{ github.run_id }}-a${{ github.run_attempt }}-m-497a92f01446c409
+          path: ${{ runner.temp }}/velnor/r${{ github.run_id }}-a${{ github.run_attempt }}/m-497a92f01446c409
   rust-termpane-full:
     name: Rust / termpane (full)
     runs-on: ubuntu-26.04
@@ -410,15 +468,25 @@ jobs:
         with:
           persist-credentials: "false"
       - name: Setup Mise
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5
         with:
           cache: "true"
-          cache_key: mise-v1-x86_64-unknown-linux-gnu-2026.9.16-e9592c9b35b763fa
-          cache_save: "true"
+          cache_key: mise-v1-x86_64-unknown-linux-gnu-2026.9.18-6270601fa454da91
+          cache_save: ${{ github.event_name == 'push' }}
           env: "false"
           install: "false"
-          sha256: b6f8757201f6a2ee799f45f3f52ef7ca0b4071523637dc3b0b24264dd3333518
-          version: 2026.9.16
+          sha256: d24fe0bf7e613824ad99f7b8dac3f2b381a37b9f75f84dd250855217095a8de4
+          version: 2026.9.18
+      - name: Acquire Velnor
+        env:
+          VELNOR_ASSET_SHA256: 82668409c370cfa08cbe1712267eb794529afcd3d90204f3815df3989c449d7c
+          VELNOR_ASSET_URL: https://github.com/tailrocks/velnor-new/releases/download/seed/velnor-actions-0.1.0-4/velnor-actions-0.1.0-x86_64-unknown-linux-gnu
+        run: "sh -c 'mkdir -p $RUNNER_TEMP/velnor/bin && curl -fsSL \"$VELNOR_ASSET_URL\" -o $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0 && echo \"$VELNOR_ASSET_SHA256  $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\" | sha256sum -c - && chmod +x $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0'"
+      - name: Download plan
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: velnor-plan-r${{ github.run_id }}-a${{ github.run_attempt }}
+          path: ${{ runner.temp }}/velnor/r${{ github.run_id }}-a${{ github.run_attempt }}
       - name: Prepare pinned tools
         env:
           MISE_CARGO_HOME: ${{ runner.temp }}/velnor/cargo
@@ -428,7 +496,7 @@ jobs:
           MISE_NO_HOOKS: "1"
           MISE_RUSTUP_HOME: ${{ runner.temp }}/velnor/rustup
           RUSTUP_TOOLCHAIN: 1.98.1
-        run: mise --no-config --no-env --no-hooks install rust@1.98.1 mr-boxington@1.19.0 actionlint@1.7.12 shellcheck@0.11.0 zizmor@1.30.1 aqua:nextest-rs/nextest/cargo-nextest@0.9.146
+        run: mise --no-config --no-env --no-hooks install rust@1.98.1 mr-boxington@1.21.0 actionlint@1.7.12 shellcheck@0.11.0 zizmor@1.30.1 aqua:nextest-rs/nextest/cargo-nextest@0.9.146
       - name: Prepare Rust components
         env:
           MISE_AUTO_INSTALL: "false"
@@ -451,7 +519,7 @@ jobs:
         uses: jdx/mr-boxington-action@9df1d4b18b2147788a7ee7a2c7b84ecf62fd89d3
         with:
           github-cache-mode: objects
-          version: 1.19.0
+          version: 1.21.0
       - name: Fetch Cargo sources
         env:
           MISE_AUTO_INSTALL: "false"
@@ -487,11 +555,12 @@ jobs:
           MISE_NO_HOOKS: "1"
           MISE_RUSTUP_HOME: ${{ runner.temp }}/velnor/rustup
           RUSTUP_TOOLCHAIN: 1.98.1
+          VELNOR_DOWNSTREAM_TASK_IDS: stack/rust/root/clippy/full,stack/rust/root/build/full,stack/rust/root/nextest/full,stack/rust/root/doctest/full,stack/rust/root/doc/full
           VELNOR_MATRIX_ID: stack:rust|task:stack/rust/root/fmt/full
           VELNOR_MATRIX_KEY: m-e8caf4da38bb875b
-          VELNOR_TASK_DIGEST: b3-d172a9c7ff54cc564729e5a3c049d777baa93f55ca3d1ca47a659fc188c935a0
+          VELNOR_TASK_DIGEST: b3-f3a8b3124e37173fcf500018e3e70c16cbc86c537b7224117bef319c3826de10
           VELNOR_TASK_ID: stack/rust/root/fmt/full
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.19.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx fmt --check --manifest-path Cargo.toml
+        run: "sh -c 'mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.21.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx fmt --check --manifest-path Cargo.toml; code=$?; VELNOR_EXIT_CODE=\"$code\" VELNOR_INTERNAL_OP=write-task-report-v1 \"$RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\"; helper_code=$?; if [ \"$code\" -ne 0 ]; then exit \"$code\"; fi; exit \"$helper_code\"'"
       - name: Clippy
         env:
           MISE_AUTO_INSTALL: "false"
@@ -503,11 +572,12 @@ jobs:
           MISE_NO_HOOKS: "1"
           MISE_RUSTUP_HOME: ${{ runner.temp }}/velnor/rustup
           RUSTUP_TOOLCHAIN: 1.98.1
+          VELNOR_DOWNSTREAM_TASK_IDS: stack/rust/root/build/full,stack/rust/root/nextest/full,stack/rust/root/doctest/full,stack/rust/root/doc/full
           VELNOR_MATRIX_ID: stack:rust|task:stack/rust/root/clippy/full
           VELNOR_MATRIX_KEY: m-d2af17c6c0090d52
-          VELNOR_TASK_DIGEST: b3-d52afd337516b455ac3209e10ca9e3595b5713a7c51a9dbe5f35fedcc9564084
+          VELNOR_TASK_DIGEST: b3-c3c09c4b2f745de791eceec58fd18d9e8eb397f562fe8e11cd32022a48d34474
           VELNOR_TASK_ID: stack/rust/root/clippy/full
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.19.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx clippy --locked --offline --manifest-path Cargo.toml --package termpane --all-targets -- -D warnings --no-default-features --features process,pty
+        run: "sh -c 'mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.21.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx clippy --locked --offline --manifest-path Cargo.toml --package termpane --all-targets --no-default-features --features process,pty -- -D warnings; code=$?; VELNOR_EXIT_CODE=\"$code\" VELNOR_INTERNAL_OP=write-task-report-v1 \"$RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\"; helper_code=$?; if [ \"$code\" -ne 0 ]; then exit \"$code\"; fi; exit \"$helper_code\"'"
       - name: Build test executables
         env:
           MISE_AUTO_INSTALL: "false"
@@ -519,11 +589,12 @@ jobs:
           MISE_NO_HOOKS: "1"
           MISE_RUSTUP_HOME: ${{ runner.temp }}/velnor/rustup
           RUSTUP_TOOLCHAIN: 1.98.1
+          VELNOR_DOWNSTREAM_TASK_IDS: stack/rust/root/nextest/full,stack/rust/root/doctest/full,stack/rust/root/doc/full
           VELNOR_MATRIX_ID: stack:rust|task:stack/rust/root/build/full
           VELNOR_MATRIX_KEY: m-87aabc4f573ec878
-          VELNOR_TASK_DIGEST: b3-40efcae3bfd62d4ded95b66241b95a75244d591e7e6e59efca386abc8ded538c
+          VELNOR_TASK_DIGEST: b3-9183cf367fd96c47563e87fbafa2b198307771a02026b9423e5fc5a180cf63db
           VELNOR_TASK_ID: stack/rust/root/build/full
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.19.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx build --locked --offline --manifest-path Cargo.toml --package termpane --no-default-features --features process,pty
+        run: "sh -c 'mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.21.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx build --locked --offline --manifest-path Cargo.toml --package termpane --no-default-features --features process,pty; code=$?; VELNOR_EXIT_CODE=\"$code\" VELNOR_INTERNAL_OP=write-task-report-v1 \"$RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\"; helper_code=$?; if [ \"$code\" -ne 0 ]; then exit \"$code\"; fi; exit \"$helper_code\"'"
       - name: Unit and integration tests
         env:
           MISE_AUTO_INSTALL: "false"
@@ -535,11 +606,12 @@ jobs:
           MISE_NO_HOOKS: "1"
           MISE_RUSTUP_HOME: ${{ runner.temp }}/velnor/rustup
           RUSTUP_TOOLCHAIN: 1.98.1
+          VELNOR_DOWNSTREAM_TASK_IDS: stack/rust/root/doctest/full,stack/rust/root/doc/full
           VELNOR_MATRIX_ID: stack:rust|task:stack/rust/root/nextest/full
           VELNOR_MATRIX_KEY: m-a201bee6b5f1a8cb
-          VELNOR_TASK_DIGEST: b3-aa630b57a80ccb3a15b5cbd69997e415dd31176d92f8640ec00dfbb03aa33600
+          VELNOR_TASK_DIGEST: b3-263584af23173cffb59b1b4ca44d1b722aea7ac75617a1baec6d7be077eed4f2
           VELNOR_TASK_ID: stack/rust/root/nextest/full
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.19.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx nextest run --profile ci --locked --offline --manifest-path Cargo.toml --package termpane --no-tests fail --no-default-features --features process,pty
+        run: "sh -c 'mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.21.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx nextest run --profile ci --locked --offline --manifest-path Cargo.toml --package termpane --no-tests fail --no-default-features --features process,pty; code=$?; VELNOR_EXIT_CODE=\"$code\" VELNOR_INTERNAL_OP=write-task-report-v1 \"$RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\"; helper_code=$?; if [ \"$code\" -ne 0 ]; then exit \"$code\"; fi; exit \"$helper_code\"'"
       - name: Doctests
         env:
           MISE_AUTO_INSTALL: "false"
@@ -551,11 +623,12 @@ jobs:
           MISE_NO_HOOKS: "1"
           MISE_RUSTUP_HOME: ${{ runner.temp }}/velnor/rustup
           RUSTUP_TOOLCHAIN: 1.98.1
+          VELNOR_DOWNSTREAM_TASK_IDS: stack/rust/root/doc/full
           VELNOR_MATRIX_ID: stack:rust|task:stack/rust/root/doctest/full
           VELNOR_MATRIX_KEY: m-916995f80cba6cb1
-          VELNOR_TASK_DIGEST: b3-ee70ccf2d82e388b63064a7dc0dd47772fd4e334270e26c4fdfd64e3869507ed
+          VELNOR_TASK_DIGEST: b3-31c8c3316e62cabcb4316bdf472f1b6837e0a3df58202c777072c6515825e1d6
           VELNOR_TASK_ID: stack/rust/root/doctest/full
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.19.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx test --locked --offline --manifest-path Cargo.toml --package termpane --doc --no-default-features --features process,pty
+        run: "sh -c 'mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.21.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx test --locked --offline --manifest-path Cargo.toml --package termpane --doc --no-default-features --features process,pty; code=$?; VELNOR_EXIT_CODE=\"$code\" VELNOR_INTERNAL_OP=write-task-report-v1 \"$RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\"; helper_code=$?; if [ \"$code\" -ne 0 ]; then exit \"$code\"; fi; exit \"$helper_code\"'"
       - name: Documentation
         env:
           MISE_AUTO_INSTALL: "false"
@@ -569,9 +642,51 @@ jobs:
           RUSTUP_TOOLCHAIN: 1.98.1
           VELNOR_MATRIX_ID: stack:rust|task:stack/rust/root/doc/full
           VELNOR_MATRIX_KEY: m-76b37564d5347465
-          VELNOR_TASK_DIGEST: b3-620bb8821ab463f62638d45363adf2b241f99720744a9d71d1344aea81218e9b
+          VELNOR_TASK_DIGEST: b3-269edf0a7a508b4f42876dba47fed00a7c62a78409999f408f56653908ccf950
           VELNOR_TASK_ID: stack/rust/root/doc/full
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.19.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx doc --locked --offline --manifest-path Cargo.toml --package termpane --no-deps --no-default-features --features process,pty
+        run: "sh -c 'mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.21.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx doc --locked --offline --manifest-path Cargo.toml --package termpane --no-deps --no-default-features --features process,pty; code=$?; VELNOR_EXIT_CODE=\"$code\" VELNOR_INTERNAL_OP=write-task-report-v1 \"$RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\"; helper_code=$?; if [ \"$code\" -ne 0 ]; then exit \"$code\"; fi; exit \"$helper_code\"'"
+      - name: Upload matrix report (Format)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          if-no-files-found: error
+          name: velnor-matrix-r${{ github.run_id }}-a${{ github.run_attempt }}-m-e8caf4da38bb875b
+          path: ${{ runner.temp }}/velnor/r${{ github.run_id }}-a${{ github.run_attempt }}/m-e8caf4da38bb875b
+      - name: Upload matrix report (Clippy)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          if-no-files-found: error
+          name: velnor-matrix-r${{ github.run_id }}-a${{ github.run_attempt }}-m-d2af17c6c0090d52
+          path: ${{ runner.temp }}/velnor/r${{ github.run_id }}-a${{ github.run_attempt }}/m-d2af17c6c0090d52
+      - name: Upload matrix report (Build test executables)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          if-no-files-found: error
+          name: velnor-matrix-r${{ github.run_id }}-a${{ github.run_attempt }}-m-87aabc4f573ec878
+          path: ${{ runner.temp }}/velnor/r${{ github.run_id }}-a${{ github.run_attempt }}/m-87aabc4f573ec878
+      - name: Upload matrix report (Unit and integration tests)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          if-no-files-found: error
+          name: velnor-matrix-r${{ github.run_id }}-a${{ github.run_attempt }}-m-a201bee6b5f1a8cb
+          path: ${{ runner.temp }}/velnor/r${{ github.run_id }}-a${{ github.run_attempt }}/m-a201bee6b5f1a8cb
+      - name: Upload matrix report (Doctests)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          if-no-files-found: error
+          name: velnor-matrix-r${{ github.run_id }}-a${{ github.run_attempt }}-m-916995f80cba6cb1
+          path: ${{ runner.temp }}/velnor/r${{ github.run_id }}-a${{ github.run_attempt }}/m-916995f80cba6cb1
+      - name: Upload matrix report (Documentation)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          if-no-files-found: error
+          name: velnor-matrix-r${{ github.run_id }}-a${{ github.run_attempt }}-m-76b37564d5347465
+          path: ${{ runner.temp }}/velnor/r${{ github.run_id }}-a${{ github.run_attempt }}/m-76b37564d5347465
   rust-termpane-fuzz:
     name: Rust / termpane-fuzz
     runs-on: ubuntu-26.04
@@ -583,15 +698,25 @@ jobs:
         with:
           persist-credentials: "false"
       - name: Setup Mise
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5
         with:
           cache: "true"
-          cache_key: mise-v1-x86_64-unknown-linux-gnu-2026.9.16-e9592c9b35b763fa
-          cache_save: "true"
+          cache_key: mise-v1-x86_64-unknown-linux-gnu-2026.9.18-6270601fa454da91
+          cache_save: ${{ github.event_name == 'push' }}
           env: "false"
           install: "false"
-          sha256: b6f8757201f6a2ee799f45f3f52ef7ca0b4071523637dc3b0b24264dd3333518
-          version: 2026.9.16
+          sha256: d24fe0bf7e613824ad99f7b8dac3f2b381a37b9f75f84dd250855217095a8de4
+          version: 2026.9.18
+      - name: Acquire Velnor
+        env:
+          VELNOR_ASSET_SHA256: 82668409c370cfa08cbe1712267eb794529afcd3d90204f3815df3989c449d7c
+          VELNOR_ASSET_URL: https://github.com/tailrocks/velnor-new/releases/download/seed/velnor-actions-0.1.0-4/velnor-actions-0.1.0-x86_64-unknown-linux-gnu
+        run: "sh -c 'mkdir -p $RUNNER_TEMP/velnor/bin && curl -fsSL \"$VELNOR_ASSET_URL\" -o $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0 && echo \"$VELNOR_ASSET_SHA256  $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\" | sha256sum -c - && chmod +x $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0'"
+      - name: Download plan
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: velnor-plan-r${{ github.run_id }}-a${{ github.run_attempt }}
+          path: ${{ runner.temp }}/velnor/r${{ github.run_id }}-a${{ github.run_attempt }}
       - name: Prepare pinned tools
         env:
           MISE_CARGO_HOME: ${{ runner.temp }}/velnor/cargo
@@ -601,7 +726,7 @@ jobs:
           MISE_NO_HOOKS: "1"
           MISE_RUSTUP_HOME: ${{ runner.temp }}/velnor/rustup
           RUSTUP_TOOLCHAIN: 1.98.1
-        run: mise --no-config --no-env --no-hooks install rust@1.98.1 mr-boxington@1.19.0 actionlint@1.7.12 shellcheck@0.11.0 zizmor@1.30.1 aqua:nextest-rs/nextest/cargo-nextest@0.9.146
+        run: mise --no-config --no-env --no-hooks install rust@1.98.1 mr-boxington@1.21.0 actionlint@1.7.12 shellcheck@0.11.0 zizmor@1.30.1 aqua:nextest-rs/nextest/cargo-nextest@0.9.146
       - name: Prepare Rust components
         env:
           MISE_AUTO_INSTALL: "false"
@@ -624,7 +749,7 @@ jobs:
         uses: jdx/mr-boxington-action@9df1d4b18b2147788a7ee7a2c7b84ecf62fd89d3
         with:
           github-cache-mode: objects
-          version: 1.19.0
+          version: 1.21.0
       - name: Fetch Cargo sources
         env:
           MISE_AUTO_INSTALL: "false"
@@ -660,11 +785,12 @@ jobs:
           MISE_NO_HOOKS: "1"
           MISE_RUSTUP_HOME: ${{ runner.temp }}/velnor/rustup
           RUSTUP_TOOLCHAIN: 1.98.1
+          VELNOR_DOWNSTREAM_TASK_IDS: stack/rust/fuzz/clippy/default,stack/rust/fuzz/build/default,stack/rust/fuzz/doc/default
           VELNOR_MATRIX_ID: stack:rust|task:stack/rust/fuzz/fmt/default
           VELNOR_MATRIX_KEY: m-b5c9c4e746ead2c6
-          VELNOR_TASK_DIGEST: b3-3a634f9d44f8d04aadb55490ea2e91dadc026a0e0f752237821f997301e1c991
+          VELNOR_TASK_DIGEST: b3-2d5056c7408e2546ad65de060052d59a8ea9ee0af2baf405433a1547e4371089
           VELNOR_TASK_ID: stack/rust/fuzz/fmt/default
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.19.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx fmt --check --manifest-path fuzz/Cargo.toml
+        run: "sh -c 'mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.21.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx fmt --check --manifest-path fuzz/Cargo.toml; code=$?; VELNOR_EXIT_CODE=\"$code\" VELNOR_INTERNAL_OP=write-task-report-v1 \"$RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\"; helper_code=$?; if [ \"$code\" -ne 0 ]; then exit \"$code\"; fi; exit \"$helper_code\"'"
       - name: Clippy
         env:
           MISE_AUTO_INSTALL: "false"
@@ -676,11 +802,12 @@ jobs:
           MISE_NO_HOOKS: "1"
           MISE_RUSTUP_HOME: ${{ runner.temp }}/velnor/rustup
           RUSTUP_TOOLCHAIN: 1.98.1
+          VELNOR_DOWNSTREAM_TASK_IDS: stack/rust/fuzz/build/default,stack/rust/fuzz/doc/default
           VELNOR_MATRIX_ID: stack:rust|task:stack/rust/fuzz/clippy/default
           VELNOR_MATRIX_KEY: m-2ef0d6f6cf85fa5b
-          VELNOR_TASK_DIGEST: b3-7e81ab9a01e54d86fddf0bc390b04c472da34f97fe79f7698365d2cc4ec24a7f
+          VELNOR_TASK_DIGEST: b3-aac3312a78043ea8f73ce14d588f52b790231328e8fe1f485d7bd7f828997e7b
           VELNOR_TASK_ID: stack/rust/fuzz/clippy/default
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.19.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx clippy --locked --offline --manifest-path fuzz/Cargo.toml --package termpane-fuzz --all-targets -- -D warnings
+        run: "sh -c 'mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.21.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx clippy --locked --offline --manifest-path fuzz/Cargo.toml --package termpane-fuzz --all-targets -- -D warnings; code=$?; VELNOR_EXIT_CODE=\"$code\" VELNOR_INTERNAL_OP=write-task-report-v1 \"$RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\"; helper_code=$?; if [ \"$code\" -ne 0 ]; then exit \"$code\"; fi; exit \"$helper_code\"'"
       - name: Build test executables
         env:
           MISE_AUTO_INSTALL: "false"
@@ -692,11 +819,12 @@ jobs:
           MISE_NO_HOOKS: "1"
           MISE_RUSTUP_HOME: ${{ runner.temp }}/velnor/rustup
           RUSTUP_TOOLCHAIN: 1.98.1
+          VELNOR_DOWNSTREAM_TASK_IDS: stack/rust/fuzz/doc/default
           VELNOR_MATRIX_ID: stack:rust|task:stack/rust/fuzz/build/default
           VELNOR_MATRIX_KEY: m-5e6a3d42f26302e4
-          VELNOR_TASK_DIGEST: b3-e5e1276564e9ca1e875fd6675eea9f379cc23dedfb722201d1306979742fdf39
+          VELNOR_TASK_DIGEST: b3-4c11985350f610ba097d32a5b025425efab37eacf49286b763238058d42e8552
           VELNOR_TASK_ID: stack/rust/fuzz/build/default
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.19.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx build --locked --offline --manifest-path fuzz/Cargo.toml --package termpane-fuzz
+        run: "sh -c 'mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.21.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx build --locked --offline --manifest-path fuzz/Cargo.toml --package termpane-fuzz; code=$?; VELNOR_EXIT_CODE=\"$code\" VELNOR_INTERNAL_OP=write-task-report-v1 \"$RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\"; helper_code=$?; if [ \"$code\" -ne 0 ]; then exit \"$code\"; fi; exit \"$helper_code\"'"
       - name: Documentation
         env:
           MISE_AUTO_INSTALL: "false"
@@ -710,9 +838,37 @@ jobs:
           RUSTUP_TOOLCHAIN: 1.98.1
           VELNOR_MATRIX_ID: stack:rust|task:stack/rust/fuzz/doc/default
           VELNOR_MATRIX_KEY: m-378e6704f305b01a
-          VELNOR_TASK_DIGEST: b3-8e8390df6569ddff37bae1d80aac03946d833a85d542587a9b57835528bf8d86
+          VELNOR_TASK_DIGEST: b3-1ff3ef1ca13ee74861dff0070558318b877c10fc8c7b5c1a288bc64a3e13bb0e
           VELNOR_TASK_ID: stack/rust/fuzz/doc/default
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.19.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx doc --locked --offline --manifest-path fuzz/Cargo.toml --package termpane-fuzz --no-deps
+        run: "sh -c 'mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.21.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx doc --locked --offline --manifest-path fuzz/Cargo.toml --package termpane-fuzz --no-deps; code=$?; VELNOR_EXIT_CODE=\"$code\" VELNOR_INTERNAL_OP=write-task-report-v1 \"$RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\"; helper_code=$?; if [ \"$code\" -ne 0 ]; then exit \"$code\"; fi; exit \"$helper_code\"'"
+      - name: Upload matrix report (Format)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          if-no-files-found: error
+          name: velnor-matrix-r${{ github.run_id }}-a${{ github.run_attempt }}-m-b5c9c4e746ead2c6
+          path: ${{ runner.temp }}/velnor/r${{ github.run_id }}-a${{ github.run_attempt }}/m-b5c9c4e746ead2c6
+      - name: Upload matrix report (Clippy)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          if-no-files-found: error
+          name: velnor-matrix-r${{ github.run_id }}-a${{ github.run_attempt }}-m-2ef0d6f6cf85fa5b
+          path: ${{ runner.temp }}/velnor/r${{ github.run_id }}-a${{ github.run_attempt }}/m-2ef0d6f6cf85fa5b
+      - name: Upload matrix report (Build test executables)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          if-no-files-found: error
+          name: velnor-matrix-r${{ github.run_id }}-a${{ github.run_attempt }}-m-5e6a3d42f26302e4
+          path: ${{ runner.temp }}/velnor/r${{ github.run_id }}-a${{ github.run_attempt }}/m-5e6a3d42f26302e4
+      - name: Upload matrix report (Documentation)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          if-no-files-found: error
+          name: velnor-matrix-r${{ github.run_id }}-a${{ github.run_attempt }}-m-378e6704f305b01a
+          path: ${{ runner.temp }}/velnor/r${{ github.run_id }}-a${{ github.run_attempt }}/m-378e6704f305b01a
   rust-termpane-fuzz-full:
     name: Rust / termpane-fuzz (full)
     runs-on: ubuntu-26.04
@@ -724,15 +880,25 @@ jobs:
         with:
           persist-credentials: "false"
       - name: Setup Mise
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5
         with:
           cache: "true"
-          cache_key: mise-v1-x86_64-unknown-linux-gnu-2026.9.16-e9592c9b35b763fa
-          cache_save: "true"
+          cache_key: mise-v1-x86_64-unknown-linux-gnu-2026.9.18-6270601fa454da91
+          cache_save: ${{ github.event_name == 'push' }}
           env: "false"
           install: "false"
-          sha256: b6f8757201f6a2ee799f45f3f52ef7ca0b4071523637dc3b0b24264dd3333518
-          version: 2026.9.16
+          sha256: d24fe0bf7e613824ad99f7b8dac3f2b381a37b9f75f84dd250855217095a8de4
+          version: 2026.9.18
+      - name: Acquire Velnor
+        env:
+          VELNOR_ASSET_SHA256: 82668409c370cfa08cbe1712267eb794529afcd3d90204f3815df3989c449d7c
+          VELNOR_ASSET_URL: https://github.com/tailrocks/velnor-new/releases/download/seed/velnor-actions-0.1.0-4/velnor-actions-0.1.0-x86_64-unknown-linux-gnu
+        run: "sh -c 'mkdir -p $RUNNER_TEMP/velnor/bin && curl -fsSL \"$VELNOR_ASSET_URL\" -o $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0 && echo \"$VELNOR_ASSET_SHA256  $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\" | sha256sum -c - && chmod +x $RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0'"
+      - name: Download plan
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: velnor-plan-r${{ github.run_id }}-a${{ github.run_attempt }}
+          path: ${{ runner.temp }}/velnor/r${{ github.run_id }}-a${{ github.run_attempt }}
       - name: Prepare pinned tools
         env:
           MISE_CARGO_HOME: ${{ runner.temp }}/velnor/cargo
@@ -742,7 +908,7 @@ jobs:
           MISE_NO_HOOKS: "1"
           MISE_RUSTUP_HOME: ${{ runner.temp }}/velnor/rustup
           RUSTUP_TOOLCHAIN: 1.98.1
-        run: mise --no-config --no-env --no-hooks install rust@1.98.1 mr-boxington@1.19.0 actionlint@1.7.12 shellcheck@0.11.0 zizmor@1.30.1 aqua:nextest-rs/nextest/cargo-nextest@0.9.146
+        run: mise --no-config --no-env --no-hooks install rust@1.98.1 mr-boxington@1.21.0 actionlint@1.7.12 shellcheck@0.11.0 zizmor@1.30.1 aqua:nextest-rs/nextest/cargo-nextest@0.9.146
       - name: Prepare Rust components
         env:
           MISE_AUTO_INSTALL: "false"
@@ -765,7 +931,7 @@ jobs:
         uses: jdx/mr-boxington-action@9df1d4b18b2147788a7ee7a2c7b84ecf62fd89d3
         with:
           github-cache-mode: objects
-          version: 1.19.0
+          version: 1.21.0
       - name: Fetch Cargo sources
         env:
           MISE_AUTO_INSTALL: "false"
@@ -801,11 +967,12 @@ jobs:
           MISE_NO_HOOKS: "1"
           MISE_RUSTUP_HOME: ${{ runner.temp }}/velnor/rustup
           RUSTUP_TOOLCHAIN: 1.98.1
+          VELNOR_DOWNSTREAM_TASK_IDS: stack/rust/fuzz/clippy/full,stack/rust/fuzz/build/full,stack/rust/fuzz/doc/full
           VELNOR_MATRIX_ID: stack:rust|task:stack/rust/fuzz/fmt/full
           VELNOR_MATRIX_KEY: m-02c2608888e5e17a
-          VELNOR_TASK_DIGEST: b3-c9f3b99903310f35f19a921aeda95d35ee618c8ceaea9373c5cc87edf5ee8693
+          VELNOR_TASK_DIGEST: b3-c6bcd5e8e3f3356cd9b890bf4aa4497fde9c022c7cd8e8dc1fde297d95778ef4
           VELNOR_TASK_ID: stack/rust/fuzz/fmt/full
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.19.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx fmt --check --manifest-path fuzz/Cargo.toml
+        run: "sh -c 'mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.21.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx fmt --check --manifest-path fuzz/Cargo.toml; code=$?; VELNOR_EXIT_CODE=\"$code\" VELNOR_INTERNAL_OP=write-task-report-v1 \"$RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\"; helper_code=$?; if [ \"$code\" -ne 0 ]; then exit \"$code\"; fi; exit \"$helper_code\"'"
       - name: Clippy
         env:
           MISE_AUTO_INSTALL: "false"
@@ -817,11 +984,12 @@ jobs:
           MISE_NO_HOOKS: "1"
           MISE_RUSTUP_HOME: ${{ runner.temp }}/velnor/rustup
           RUSTUP_TOOLCHAIN: 1.98.1
+          VELNOR_DOWNSTREAM_TASK_IDS: stack/rust/fuzz/build/full,stack/rust/fuzz/doc/full
           VELNOR_MATRIX_ID: stack:rust|task:stack/rust/fuzz/clippy/full
           VELNOR_MATRIX_KEY: m-4c6d6153fd4c25eb
-          VELNOR_TASK_DIGEST: b3-ef861d37c75fa0785be074dbb7889854b87d18ced2ed91352630f5201b62346a
+          VELNOR_TASK_DIGEST: b3-9984c32a186c78bef7c8e953dcc1de8b4f0ff07e7e1d75c032f81a03663238dd
           VELNOR_TASK_ID: stack/rust/fuzz/clippy/full
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.19.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx clippy --locked --offline --manifest-path fuzz/Cargo.toml --package termpane-fuzz --all-targets -- -D warnings
+        run: "sh -c 'mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.21.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx clippy --locked --offline --manifest-path fuzz/Cargo.toml --package termpane-fuzz --all-targets -- -D warnings; code=$?; VELNOR_EXIT_CODE=\"$code\" VELNOR_INTERNAL_OP=write-task-report-v1 \"$RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\"; helper_code=$?; if [ \"$code\" -ne 0 ]; then exit \"$code\"; fi; exit \"$helper_code\"'"
       - name: Build test executables
         env:
           MISE_AUTO_INSTALL: "false"
@@ -833,11 +1001,12 @@ jobs:
           MISE_NO_HOOKS: "1"
           MISE_RUSTUP_HOME: ${{ runner.temp }}/velnor/rustup
           RUSTUP_TOOLCHAIN: 1.98.1
+          VELNOR_DOWNSTREAM_TASK_IDS: stack/rust/fuzz/doc/full
           VELNOR_MATRIX_ID: stack:rust|task:stack/rust/fuzz/build/full
           VELNOR_MATRIX_KEY: m-02794d54e698b69e
-          VELNOR_TASK_DIGEST: b3-2ec1fb4018fdd83e1f341946252bcad1afd99434073a1d2a7e2b49b37d690898
+          VELNOR_TASK_DIGEST: b3-d90a6bd206bf428098dc17d7ad713ee193f221ea0e16bc07d12ef674be20ec79
           VELNOR_TASK_ID: stack/rust/fuzz/build/full
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.19.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx build --locked --offline --manifest-path fuzz/Cargo.toml --package termpane-fuzz
+        run: "sh -c 'mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.21.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx build --locked --offline --manifest-path fuzz/Cargo.toml --package termpane-fuzz; code=$?; VELNOR_EXIT_CODE=\"$code\" VELNOR_INTERNAL_OP=write-task-report-v1 \"$RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\"; helper_code=$?; if [ \"$code\" -ne 0 ]; then exit \"$code\"; fi; exit \"$helper_code\"'"
       - name: Documentation
         env:
           MISE_AUTO_INSTALL: "false"
@@ -851,6 +1020,34 @@ jobs:
           RUSTUP_TOOLCHAIN: 1.98.1
           VELNOR_MATRIX_ID: stack:rust|task:stack/rust/fuzz/doc/full
           VELNOR_MATRIX_KEY: m-6ac9b8121d133c87
-          VELNOR_TASK_DIGEST: b3-d7f609dbf7fa369260b192efa3af17a6baa7bf6c630fc2d90d839d9423676de6
+          VELNOR_TASK_DIGEST: b3-b81606f55129d9013e68316b72059201e6dc60d9ee38fe4f5d447a8ad67cda38
           VELNOR_TASK_ID: stack/rust/fuzz/doc/full
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.19.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx doc --locked --offline --manifest-path fuzz/Cargo.toml --package termpane-fuzz --no-deps
+        run: "sh -c 'mise --no-config --no-env --no-hooks exec rust@1.98.1 mr-boxington@1.21.0 aqua:nextest-rs/nextest/cargo-nextest@0.9.146 -- mbx doc --locked --offline --manifest-path fuzz/Cargo.toml --package termpane-fuzz --no-deps; code=$?; VELNOR_EXIT_CODE=\"$code\" VELNOR_INTERNAL_OP=write-task-report-v1 \"$RUNNER_TEMP/velnor/bin/velnor-actions-0.1.0\"; helper_code=$?; if [ \"$code\" -ne 0 ]; then exit \"$code\"; fi; exit \"$helper_code\"'"
+      - name: Upload matrix report (Format)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          if-no-files-found: error
+          name: velnor-matrix-r${{ github.run_id }}-a${{ github.run_attempt }}-m-02c2608888e5e17a
+          path: ${{ runner.temp }}/velnor/r${{ github.run_id }}-a${{ github.run_attempt }}/m-02c2608888e5e17a
+      - name: Upload matrix report (Clippy)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          if-no-files-found: error
+          name: velnor-matrix-r${{ github.run_id }}-a${{ github.run_attempt }}-m-4c6d6153fd4c25eb
+          path: ${{ runner.temp }}/velnor/r${{ github.run_id }}-a${{ github.run_attempt }}/m-4c6d6153fd4c25eb
+      - name: Upload matrix report (Build test executables)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          if-no-files-found: error
+          name: velnor-matrix-r${{ github.run_id }}-a${{ github.run_attempt }}-m-02794d54e698b69e
+          path: ${{ runner.temp }}/velnor/r${{ github.run_id }}-a${{ github.run_attempt }}/m-02794d54e698b69e
+      - name: Upload matrix report (Documentation)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          if-no-files-found: error
+          name: velnor-matrix-r${{ github.run_id }}-a${{ github.run_attempt }}-m-6ac9b8121d133c87
+          path: ${{ runner.temp }}/velnor/r${{ github.run_id }}-a${{ github.run_attempt }}/m-6ac9b8121d133c87
