@@ -9,8 +9,23 @@ pub mod cell;
 pub mod damage;
 pub mod grid;
 pub mod passthrough;
+#[cfg(all(unix, feature = "process"))]
+pub mod process;
+#[cfg(all(unix, feature = "pty"))]
+pub mod pty;
+#[cfg(all(unix, feature = "pty"))]
+pub mod session;
+#[cfg(all(unix, feature = "pty"))]
+mod session_observe;
+#[cfg(all(unix, feature = "pty"))]
+mod session_worker;
 pub mod snapshot;
 pub mod width;
+
+#[cfg(all(not(unix), feature = "process"))]
+compile_error!("termpane `process` feature requires a Unix target");
+#[cfg(all(not(unix), feature = "pty"))]
+compile_error!("termpane `pty` feature requires a Unix target");
 
 pub use cell::{Attrs, Cell, Color, Hyperlink, UnderlineStyle};
 pub use damage::{DirtySpans, DirtyTracker};

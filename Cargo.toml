@@ -23,6 +23,16 @@ resolver = "3"
 
 [features]
 default = []
+# Piped-process transport (Unix only): spawn-params builder, piped spawn with
+# an optional detached (new-session) flag, exit polling/reaping, signals, and
+# process-identity probes. Pulls `nix` syscall wrappers; no new build impact
+# for default (model-only) users.
+process = ["dep:nix"]
+# PTY transport (Unix only, implies `process`): master/slave allocation,
+# spawn-into-PTY, split reader/writer handles, resize, plus the live-session
+# layer (`termpane::session`: grid pump, reply routing, bounded teardown).
+# Pulls `portable-pty`.
+pty = ["process", "dep:portable-pty"]
 # Enables the DHAT allocator in `benches/present_frame.rs` so the present-frame
 # allocation axis can be profiled with:
 #   cargo bench --bench present_frame --features dhat-heap
@@ -44,6 +54,20 @@ unicode-width = "0.2"
 # canonical, actively maintained, >10M downloads. MIT/Apache-2.0.
 compact_str = "0.10"
 smallvec = "1.15"
+
+# Optional transport deps (Unix only, non-default; see README "Process and PTY
+# transport"). termpane's own code stays `unsafe_code = forbid`; these crates
+# wrap the syscalls (posix_spawn, kill, getsid/getpgid, openpty) behind safe
+# APIs. nix 0.31 (not 0.28) for the safe `posix_spawn` module used by detached
+# spawn; the 0.28 copy pulled by portable-pty is semver-incompatible, so the
+# multiple-versions deny gate stays green without an exception.
+nix = { version = "0.31", optional = true, default-features = false, features = [
+  "fs",
+  "process",
+  "signal",
+  "user",
+] }
+portable-pty = { version = "0.9", optional = true }
 
 [dev-dependencies]
 criterion = { version = "=0.8.2", features = ["html_reports"] }

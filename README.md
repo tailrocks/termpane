@@ -31,6 +31,52 @@ program bytes
 - **Chunk-boundary safe**: the conformance harness replays every corpus fixture both one-shot and byte-by-byte and asserts identical final screen state.
 - **Fuzz-covered**: the `damage_grid_process` target feeds arbitrary bytes to the grid asserting no panic and stable invariants.
 
+These guarantees describe the default model-only build. The optional
+transport features below spawn real processes by design; passive users
+(`default = []`) get zero new dependencies and zero host effects.
+
+## Process and PTY transport (optional features)
+
+Unix-only. `process` covers piped children (spawn-params builder, piped
+spawn with an optional new-session flag, exit polling/reaping, signals,
+pid/pgid/sid/uid probes); `pty` (which implies `process`) covers PTY
+allocation, spawn-into-PTY, split reader/writer handles, resize, and
+live grid-backed sessions.
+
+| Feature | Module | Extra dependencies | Default |
+|---|---|---|---|
+| `process` | `termpane::process` | `nix` 0.31 (`fs`, `process`, `signal`, `user`) | off |
+| `pty` | `termpane::pty`, `termpane::session` | `portable-pty` 0.9 (pulls `nix` 0.28, `libc`, `filedescriptor`, …) | off |
+
+Dependency transparency: termpane's own code stays `unsafe_code = forbid`
+under every feature combination — the syscalls (`posix_spawn`, `kill`,
+`getsid`/`getpgid`, `openpty`, `waitpid`) live inside `nix` and
+`portable-pty`, which wrap them behind safe APIs and carry their own
+`unsafe` internally (plus a transitive `libc`). The two `nix` copies (0.28
+via `portable-pty`, 0.31 direct) are semver-incompatible, so the
+`multiple-versions` deny gate stays green. All transport deps are MIT or
+Apache-2.0 (`cargo deny check` passes).
+
+Semantics worth knowing before adopting:
+
+- Exit statuses follow the `portable-pty` signal-death convention (signal
+  death ⇒ code 1 plus a signal description), but the description text is
+  spawn-path dependent — treat it as opaque, branch only on presence.
+- PTY end-of-output is `Ok(0)` on macOS and an `EIO` error on Linux; both
+  mean EOF. Drop the parent slave handle before reading (or use the
+  one-call spawn), or EOF never arrives on Linux.
+- Detached piped children (`detached(true)`) start a true new session
+  (`pgid == pid`, `sid == pid`) via `posix_spawn` + `POSIX_SPAWN_SETSID`
+  on macOS and Linux; other Unix targets fail the build with a clear
+  message until their flag value is verified.
+- `kill()` on a PTY child delivers SIGHUP first (backend behavior) and
+  escalates; on a piped child it is SIGKILL immediately.
+- Live sessions (`termpane::session`) pump PTY output through a `DamageGrid`
+  on a worker thread, route emulator replies (DA/DSR answers) back to PTY
+  stdin automatically, drain trailing output after child exit before
+  reporting it, and bound every teardown step (`finish`/`close`/`Drop`
+  never hang past their grace).
+
 ## Quick start
 
 ```rust
