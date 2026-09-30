@@ -290,6 +290,7 @@ jobs:
         uses: jdx/mr-boxington-action@9df1d4b18b2147788a7ee7a2c7b84ecf62fd89d3
         with:
           github-cache-mode: objects
+          version: 1.19.0
       - name: Fetch Cargo sources
         env:
           MISE_AUTO_INSTALL: "false"
@@ -462,6 +463,7 @@ jobs:
         uses: jdx/mr-boxington-action@9df1d4b18b2147788a7ee7a2c7b84ecf62fd89d3
         with:
           github-cache-mode: objects
+          version: 1.19.0
       - name: Fetch Cargo sources
         env:
           MISE_AUTO_INSTALL: "false"
@@ -634,6 +636,7 @@ jobs:
         uses: jdx/mr-boxington-action@9df1d4b18b2147788a7ee7a2c7b84ecf62fd89d3
         with:
           github-cache-mode: objects
+          version: 1.19.0
       - name: Fetch Cargo sources
         env:
           MISE_AUTO_INSTALL: "false"
@@ -774,6 +777,7 @@ jobs:
         uses: jdx/mr-boxington-action@9df1d4b18b2147788a7ee7a2c7b84ecf62fd89d3
         with:
           github-cache-mode: objects
+          version: 1.19.0
       - name: Fetch Cargo sources
         env:
           MISE_AUTO_INSTALL: "false"
