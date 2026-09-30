@@ -20,6 +20,7 @@
 //! anything else is a real error.
 
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::process::{ExitStatus, SignalError, SpawnParams};
 
@@ -170,7 +171,13 @@ pub fn spawn_pty(
         .map_err(backend)?;
     let child = pair.slave.spawn_command(cmd).map_err(backend)?;
     drop(pair.slave);
-    Ok((Master { inner: pair.master }, PtyChild { inner: child }))
+    Ok((
+        Master { inner: pair.master },
+        PtyChild {
+            inner: child,
+            reaped: AtomicBool::new(false),
+        },
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -209,8 +216,9 @@ impl Master {
 
     /// Take the writer for child input (`Send`).
     ///
-    /// Valid to take only once; dropping the writer closes the child's stdin
-    /// (EOF), which is the graceful way to finish input-driven children.
+    /// Valid to take only once; dropping the writer asks the backend to inject
+    /// its EOF sequence (newline + `VEOF`) — a canonical-mode EOF request,
+    /// not a universal half-close (see [`PtyWriter`).
     ///
     /// # Errors
     ///
@@ -282,7 +290,10 @@ impl Slave {
         let _transport = crate::process::lock_transport_spawn();
         self.inner
             .spawn_command(cmd)
-            .map(|inner| PtyChild { inner })
+            .map(|inner| PtyChild {
+                inner,
+                reaped: AtomicBool::new(false),
+            })
             .map_err(backend)
     }
 }
@@ -312,10 +323,12 @@ impl std::io::Read for PtyReader {
 
 /// Writer for child input (`Send`).
 ///
-/// Dropping the writer closes the child's stdin (EOF): the backend writes a
-/// newline plus the `VEOF` character before closing the fd, so the reader may
-/// observe line-discipline echo artifacts (e.g. `^D`). Take only once per
-/// master; see [`Master::take_writer`].
+/// Dropping the writer asks the backend to inject a newline plus the `VEOF`
+/// character before closing the fd, so the reader may observe line-discipline
+/// echo artifacts (e.g. `^D`). That is a canonical-mode EOF request only: a
+/// child in raw mode reads the injected bytes as ordinary input and may keep
+/// running. Portable PTYs offer no true half-close; take only once per
+/// master — see [`Master::take_writer`].
 pub struct PtyWriter {
     inner: Box<dyn std::io::Write + Send>,
 }
@@ -343,9 +356,15 @@ impl std::io::Write for PtyWriter {
 /// A child running in a PTY: poll, wait, kill, signal.
 ///
 /// Dropping the handle does not kill or wait for the child; reap with
-/// [`PtyChild::wait`] or [`PtyChild::try_wait`].
+/// [`PtyChild::wait`] or [`PtyChild::try_wait`]. Once reaped, the pid is never
+/// signalled again (see [`PtyChild::signal`]).
 pub struct PtyChild {
     inner: Box<dyn portable_pty::Child + Send + Sync>,
+    /// Set once [`PtyChild::try_wait`] or [`PtyChild::wait`] observes the
+    /// exit. The flag is read by `signal`/`kill` and written only under `&mut`
+    /// access, so safe callers cannot race the transition — the same shape as
+    /// the piped transport's post-reap rule.
+    reaped: AtomicBool,
 }
 
 impl std::fmt::Debug for PtyChild {
@@ -363,13 +382,28 @@ impl PtyChild {
         self.inner.process_id()
     }
 
+    /// True once [`PtyChild::try_wait`] or [`PtyChild::wait`] observed the
+    /// exit: the pid is dead to this handle from here on.
+    #[must_use]
+    pub fn is_reaped(&self) -> bool {
+        self.reaped.load(Ordering::SeqCst)
+    }
+
+    fn mark_reaped(&self) {
+        self.reaped.store(true, Ordering::SeqCst);
+    }
+
     /// Poll for exit without blocking: `Ok(None)` means still running.
     ///
     /// # Errors
     ///
     /// Returns [`std::io::Error`] when the underlying poll fails.
     pub fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>> {
-        Ok(self.inner.try_wait()?.map(convert_status))
+        let status = self.inner.try_wait()?.map(convert_status);
+        if status.is_some() {
+            self.mark_reaped();
+        }
+        Ok(status)
     }
 
     /// Block until the child exits and return its status.
@@ -378,28 +412,50 @@ impl PtyChild {
     ///
     /// Returns [`std::io::Error`] when the underlying wait fails.
     pub fn wait(&mut self) -> std::io::Result<ExitStatus> {
-        self.inner.wait().map(convert_status)
+        let status = self.inner.wait().map(convert_status);
+        if status.is_ok() {
+            self.mark_reaped();
+        }
+        status
     }
 
     /// Kill the child (`SIGKILL`).
+    ///
+    /// A kill on an already-reaped child is a silent no-op returning `Ok`
+    /// (matching `std`): the pid is never signalled after reaping, so kernel
+    /// pid reuse cannot redirect the signal at an unrelated process.
     ///
     /// # Errors
     ///
     /// Returns [`std::io::Error`] when the backend kill fails.
     pub fn kill(&mut self) -> std::io::Result<()> {
+        if self.is_reaped() {
+            return Ok(());
+        }
         self.inner.kill()
     }
 
     /// Deliver `signo` to the child; see [`crate::process::signal`].
     ///
+    /// Never targets the pid after the child was reaped (via
+    /// [`PtyChild::wait`] or [`PtyChild::try_wait`]): the kernel may already
+    /// have recycled the pid for an unrelated process, so a reaped handle
+    /// reports [`SignalError::NotFound`] without a syscall. An exited but
+    /// still unreaped child keeps its pid (zombie), so signalling it stays a
+    /// harmless delivered-or-ESRCH round trip.
+    ///
     /// # Errors
     ///
     /// Returns [`SignalError::UnknownPid`] when the backend does not know the
-    /// pid, else exactly like [`crate::process::signal`].
+    /// pid, [`SignalError::NotFound`] for a reaped child without signalling,
+    /// else exactly like [`crate::process::signal`].
     pub fn signal(&self, signo: i32) -> Result<(), SignalError> {
         let Some(pid) = self.pid() else {
             return Err(SignalError::UnknownPid);
         };
+        if self.is_reaped() {
+            return Err(SignalError::NotFound { pid });
+        }
         crate::process::signal(pid, signo)
     }
 }

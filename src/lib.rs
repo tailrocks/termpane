@@ -15,6 +15,10 @@ pub mod process;
 pub mod pty;
 #[cfg(all(unix, feature = "pty"))]
 pub mod session;
+#[cfg(all(unix, feature = "pty"))]
+mod session_observe;
+#[cfg(all(unix, feature = "pty"))]
+mod session_worker;
 pub mod snapshot;
 pub mod width;
 

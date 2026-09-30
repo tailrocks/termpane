@@ -7,7 +7,7 @@
 use std::io::{Read, Write};
 use std::time::{Duration, Instant};
 
-use termpane::process::{SIGTERM, SpawnParams, pid_alive};
+use termpane::process::{SIGTERM, SignalError, SpawnParams, pid_alive};
 use termpane::pty::{PtyError, PtyReader, openpty, spawn_pty};
 
 /// Drain a PTY reader to end-of-output: `Ok(0)` (macOS) or `EIO` (Linux,
@@ -219,6 +219,42 @@ fn signal_term_via_child_kills_pty_child() {
     let status = child.wait().expect("wait");
     assert_eq!(status.exit_code(), 1);
     assert!(status.signal().is_some());
+}
+
+#[test]
+fn signal_after_reap_is_refused_without_syscall() {
+    // F03 at the PTY layer: once reaped (via either `wait` or `try_wait`),
+    // the pid is dead to the handle — `signal` reports NotFound without a
+    // syscall, so pid reuse can never redirect it, and `kill` is a no-op.
+    for reaper in ["wait", "try_wait"] {
+        let params = SpawnParams::new("true");
+        let (_master, mut child) = spawn_pty(&params, 80, 24).expect("spawn pty true");
+        let pid = child.pid().expect("pty pid");
+        assert!(!child.is_reaped());
+        if reaper == "wait" {
+            assert!(child.wait().expect("wait").success());
+        } else {
+            let start = Instant::now();
+            loop {
+                if let Some(status) = child.try_wait().expect("poll") {
+                    assert!(status.success());
+                    break;
+                }
+                assert!(
+                    start.elapsed() < Duration::from_secs(10),
+                    "true never exited"
+                );
+                sleep_ms(5);
+            }
+        }
+        assert!(child.is_reaped());
+        assert_eq!(
+            child.signal(SIGTERM),
+            Err(SignalError::NotFound { pid }),
+            "{reaper}: signal after reap must not touch the pid"
+        );
+        child.kill().expect("kill after reap is a safe no-op");
+    }
 }
 
 #[test]

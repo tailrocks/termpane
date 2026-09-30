@@ -4,35 +4,47 @@
 //! Live PTY sessions: a child process, its emulator grid, and the pump threads.
 //!
 //! [`PtySession::spawn`] builds on the [`crate::pty`] transport: it spawns
-//! [`SpawnParams`](crate::process::SpawnParams) into a PTY and starts two
+//! [`SpawnParams`] into a PTY and starts two
 //! threads: a **reader thread** that blocks on the PTY master and forwards
-//! byte batches to the worker, and a **worker thread** that owns the
-//! [`DamageGrid`](crate::grid::DamageGrid), the PTY writer, and the child
-//! handle. All grid access happens on the worker; the handle only sends ops
-//! and receives replies over channels, so the session is `Send + Sync` with
-//! no `unsafe` anywhere.
+//! byte batches over a bounded data channel, and a **worker thread** (see the
+//! crate-private `session_worker` module) that owns the
+//! [`DamageGrid`](crate::grid::DamageGrid) and the PTY writer. All grid access
+//! happens on the worker; the handle sends small ops over a separate control
+//! channel and receives replies, so the session is `Send + Sync` with no
+//! `unsafe` anywhere.
 //!
 //! The worker routes emulator replies ([`Reply`](crate::PassthroughEvent::Reply)
-//! events: DA/DSR/DECRQM answers) back to PTY stdin automatically and stashes
-//! every other passthrough event for [`PtySession::drain_events`].
+//! events: DA/DSR/DECRQM answers) back to PTY stdin automatically, counts and
+//! retains any routing failures, and stashes every other passthrough event
+//! (bounded, oldest dropped first) for [`PtySession::drain_events`].
 //!
 //! ## Cleanup
 //!
 //! [`PtySession::finish`] (graceful: EOF stdin, wait, reap) and
 //! [`PtySession::close`] (forceful, idempotent) return teardown errors.
-//! `Drop` reaps children and joins threads without double-panicking.
+//! Teardown sets a shutdown flag, kills the child through the shared handle —
+//! which unblocks any in-flight PTY write with `EIO` — and then really joins
+//! both threads: a stuck thread is never detached. `Drop` runs the same
+//! teardown without double-panicking.
 
-use std::io::{Read, Write};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, PoisonError, mpsc};
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, PoisonError, mpsc};
+use std::time::Instant;
 
-use crate::grid::DamageGrid;
 use crate::passthrough::PassthroughEvent;
 use crate::process::{ExitStatus, SpawnParams};
-use crate::pty::{Master, PtyChild, PtyReader, PtyWriter, spawn_pty};
+use crate::pty::spawn_pty;
+use crate::session_worker::{
+    CtlOp, DATA_QUEUE_BATCHES, DEFAULT_EVENT_CAP, DEFAULT_OUTPUT_CAP_BYTES, DataMsg, REPLY_TIMEOUT,
+    Shared, SharedChild, StartupFaults, StartupGuard, WorkerConfig, run_reader, run_worker,
+};
 use crate::snapshot::GridSnapshot;
 use crate::width::VirtualTerminalProfile;
+
+pub use crate::session_observe::{
+    Capabilities, CaptureOutcome, ColorState, Completeness, CursorState, Diagnostics, ModeState,
+    Observation, StreamState,
+};
 
 // ---------------------------------------------------------------------------
 // Limits and timing
@@ -46,19 +58,6 @@ pub const MIN_ROWS: u16 = 1;
 pub const MAX_COLS: u16 = 1000;
 /// Largest session height, in rows.
 pub const MAX_ROWS: u16 = 1000;
-
-/// How long after child exit the worker still accepts trailing reader bytes.
-const DRAIN_GRACE: Duration = Duration::from_millis(500);
-/// Worker tick: child-exit polling cadence.
-const WORKER_TICK: Duration = Duration::from_millis(25);
-/// Grace for SIGKILL-triggered reap during teardown.
-const KILL_GRACE: Duration = Duration::from_secs(2);
-/// Bound for joining one session thread during teardown. Must exceed the
-/// worker's worst case (`KILL_GRACE` + tick). Past this grace the thread is
-/// detached, never joined forever.
-const JOIN_GRACE: Duration = Duration::from_secs(5);
-/// Bound for one worker round-trip (resize, snapshot, ...).
-const REPLY_TIMEOUT: Duration = Duration::from_secs(10);
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -142,7 +141,7 @@ impl Signal {
 /// Spawn options for [`PtySession::spawn`]: geometry, grid, and recording.
 ///
 /// The child command itself (argv, environment, cwd) travels on
-/// [`SpawnParams`](crate::process::SpawnParams); these options cover only
+/// [`SpawnParams`]; these options cover only
 /// what the session layer adds on top of the transport.
 #[derive(Debug, Clone)]
 pub struct SessionOptions {
@@ -158,9 +157,18 @@ pub struct SessionOptions {
     pub colorterm: String,
     /// Grid scrollback limit, in lines.
     pub scrollback: usize,
-    /// Record every pumped output byte for [`PtySession::output_log`].
-    /// Off by default: the log grows without bound.
+    /// Record pumped output bytes for [`PtySession::output_log`].
+    /// Off by default: the log retains up to `output_cap_bytes`.
     pub record_output: bool,
+    /// Cap on stashed passthrough events for [`PtySession::drain_events`]:
+    /// past this many undrained events the oldest are dropped first. Every
+    /// drop is counted in [`Diagnostics::events_dropped`], so the bound is
+    /// never silent. At least 1 is always kept.
+    pub event_cap: usize,
+    /// Cap on recorded output-log bytes: the log keeps the oldest prefix up
+    /// to this size, then freezes with [`Diagnostics::output_truncated`] set.
+    /// [`Diagnostics::output_bytes_total`] still reports every byte seen.
+    pub output_cap_bytes: usize,
 }
 
 impl Default for SessionOptions {
@@ -173,86 +181,8 @@ impl Default for SessionOptions {
             colorterm: profile.agent_colorterm.to_owned(),
             scrollback: 1000,
             record_output: false,
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Shared state
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Default)]
-struct SharedState {
-    exit: Option<ExitStatus>,
-    closed: bool,
-    teardown_error: Option<String>,
-}
-
-#[derive(Debug, Default)]
-struct Shared {
-    state: Mutex<SharedState>,
-    changed: Condvar,
-}
-
-impl Shared {
-    fn publish_exit(&self, status: ExitStatus) {
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.exit.is_none() {
-            state.exit = Some(status);
-            self.changed.notify_all();
-        }
-    }
-
-    fn exit(&self) -> Option<ExitStatus> {
-        self.state
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .exit
-            .clone()
-    }
-
-    fn mark_closed(&self) {
-        self.state
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .closed = true;
-        self.changed.notify_all();
-    }
-
-    fn is_closed(&self) -> bool {
-        self.state
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .closed
-    }
-
-    fn record_teardown(&self, msg: &str) {
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.teardown_error.is_none() {
-            state.teardown_error = Some(msg.to_owned());
-        }
-    }
-
-    fn teardown_error(&self) -> Option<String> {
-        self.state
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .teardown_error
-            .clone()
-    }
-
-    /// Wait until exit is published, the session closes, or `deadline` passes.
-    fn wait_exit_changed(&self, deadline: Instant) {
-        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.exit.is_some() || state.closed {
-            return;
-        }
-        let now = Instant::now();
-        if now < deadline {
-            let _guard = self
-                .changed
-                .wait_timeout(state, deadline - now)
-                .unwrap_or_else(PoisonError::into_inner);
+            event_cap: DEFAULT_EVENT_CAP,
+            output_cap_bytes: DEFAULT_OUTPUT_CAP_BYTES,
         }
     }
 }
@@ -265,7 +195,9 @@ impl Shared {
 /// `Send + Sync`; concurrent sessions are fully independent.
 #[derive(Debug)]
 pub struct PtySession {
-    op_tx: Mutex<Option<mpsc::Sender<Op>>>,
+    ctl_tx: Mutex<Option<mpsc::Sender<CtlOp>>>,
+    shutdown: Arc<AtomicBool>,
+    killer: SharedChild,
     shared: Arc<Shared>,
     worker: Mutex<Option<std::thread::JoinHandle<()>>>,
     reader: Mutex<Option<std::thread::JoinHandle<()>>>,
@@ -289,11 +221,31 @@ impl PtySession {
     /// override them; `detached` on the params is accepted and implied (PTY
     /// children always start a new session with a controlling terminal).
     ///
+    /// Every post-spawn failure — reader, writer, initial poll, thread spawn,
+    /// worker handshake — rolls back through one guard: the child is killed
+    /// and reaped and any started thread is joined, so a failed `spawn` never
+    /// leaks a process or a thread.
+    ///
     /// # Errors
     ///
     /// Returns [`ProcessError::Spawn`] when the geometry is out of range,
     /// `argv` is empty, or the PTY/child/threads fail to start.
     pub fn spawn(params: &SpawnParams, options: SessionOptions) -> Result<Self, ProcessError> {
+        let mut pid_report = None;
+        Self::spawn_with_faults(params, options, StartupFaults::none(), &mut pid_report)
+    }
+
+    /// Spawn with fault injection and pid reporting, for rollback tests.
+    ///
+    /// `spawned_pid` receives the child's pid as soon as `spawn_pty` succeeds,
+    /// so tests can prove no-survivors after an injected failure. Production
+    /// callers use [`PtySession::spawn`].
+    pub(crate) fn spawn_with_faults(
+        params: &SpawnParams,
+        options: SessionOptions,
+        faults: StartupFaults,
+        spawned_pid: &mut Option<u32>,
+    ) -> Result<Self, ProcessError> {
         let (cols, rows) = (options.cols, options.rows);
         if !(MIN_COLS..=MAX_COLS).contains(&cols) {
             return Err(ProcessError::Spawn(format!(
@@ -318,59 +270,122 @@ impl PtySession {
 
         // One transport call: open + spawn + parent-slave-drop under the
         // lifecycle lock, so EOF discipline is correct from the start.
-        let (master, mut child) = spawn_pty(&effective, cols, rows)
+        let (master, child) = spawn_pty(&effective, cols, rows)
             .map_err(|e| ProcessError::Spawn(format!("pty spawn failed: {e}")))?;
+        let killer = SharedChild::new(child);
+        *spawned_pid = killer.pid();
+        // From here on, every early return drops the guard, which kills and
+        // reaps the child (and joins the worker once it runs).
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let mut guard = StartupGuard::armed(killer.clone(), Arc::clone(&shutdown));
+
         // Drain discipline: take I/O handles before any wait can run.
+        if faults.fail_reader {
+            return Err(ProcessError::Spawn("injected reader failure".to_owned()));
+        }
         let reader = master
             .try_clone_reader()
             .map_err(|e| ProcessError::Spawn(format!("pty reader failed: {e}")))?;
+        if faults.fail_writer {
+            return Err(ProcessError::Spawn("injected writer failure".to_owned()));
+        }
         let writer = master
             .take_writer()
             .map_err(|e| ProcessError::Spawn(format!("pty writer failed: {e}")))?;
-        child
-            .try_wait()
+        if faults.fail_poll {
+            return Err(ProcessError::Spawn(
+                "injected child-poll failure".to_owned(),
+            ));
+        }
+        killer
+            .poll()
             .map_err(|e| ProcessError::Spawn(format!("child poll failed: {e}")))?;
-        let pid = child.pid();
+        let pid = killer.pid();
 
-        let (op_tx, op_rx) = mpsc::channel::<Op>();
+        let (ctl_tx, ctl_rx) = mpsc::channel::<CtlOp>();
+        let (data_tx, data_rx) = mpsc::sync_channel::<DataMsg>(DATA_QUEUE_BATCHES);
+        let inflight = Arc::new(AtomicUsize::new(0));
+        let worker_inflight = Arc::clone(&inflight);
         let shared = Arc::new(Shared::default());
+        if faults.fail_worker_thread {
+            return Err(ProcessError::Spawn(
+                "injected worker-thread failure".to_owned(),
+            ));
+        }
         let worker_shared = Arc::clone(&shared);
+        let worker_shutdown = Arc::clone(&shutdown);
+        let worker_killer = killer.clone();
         let worker = std::thread::Builder::new()
             .name("termpane-session-worker".to_owned())
             .spawn(move || {
-                run_worker(
+                run_worker(WorkerConfig {
                     master,
-                    child,
+                    killer: worker_killer,
                     writer,
                     cols,
                     rows,
-                    options.scrollback,
-                    options.record_output,
-                    op_rx,
-                    worker_shared,
-                );
+                    scrollback: options.scrollback,
+                    record_output: options.record_output,
+                    event_cap: options.event_cap,
+                    output_cap_bytes: options.output_cap_bytes,
+                    data_rx,
+                    inflight: worker_inflight,
+                    ctl_rx,
+                    shutdown: worker_shutdown,
+                    shared: worker_shared,
+                });
             })
             .map_err(|e| ProcessError::Spawn(format!("worker spawn failed: {e}")))?;
+        guard.set_worker(ctl_tx.clone(), worker);
 
-        let feed_tx = op_tx.clone();
+        if faults.fail_reader_thread {
+            return Err(ProcessError::Spawn(
+                "injected reader-thread failure".to_owned(),
+            ));
+        }
         let reader_thread = std::thread::Builder::new()
             .name("termpane-session-reader".to_owned())
-            .spawn(move || run_reader(reader, feed_tx))
+            .spawn(move || run_reader(reader, data_tx, inflight))
             .map_err(|e| ProcessError::Spawn(format!("reader spawn failed: {e}")))?;
 
+        let worker = guard.take_worker();
+        guard.defuse();
+        if faults.fail_setup {
+            // Simulate a dead worker before the handshake: the handshake must
+            // fail and full teardown must still reap the child.
+            drop(ctl_tx);
+            let mut session = Self {
+                ctl_tx: Mutex::new(None),
+                shutdown,
+                killer,
+                shared,
+                worker: Mutex::new(worker),
+                reader: Mutex::new(Some(reader_thread)),
+                closed: AtomicBool::new(false),
+                pid,
+            };
+            let _ignored = session.close();
+            return Err(ProcessError::Spawn(
+                "injected setup failure: worker did not answer".to_owned(),
+            ));
+        }
         let session = Self {
-            op_tx: Mutex::new(Some(op_tx)),
+            ctl_tx: Mutex::new(Some(ctl_tx)),
+            shutdown,
+            killer,
             shared,
-            worker: Mutex::new(Some(worker)),
+            worker: Mutex::new(worker),
             reader: Mutex::new(Some(reader_thread)),
             closed: AtomicBool::new(false),
             pid,
         };
         // Round-trip the worker: the session is usable only once the worker
         // owns the grid and answers ops.
-        session
-            .snapshot()
-            .map_err(|e| ProcessError::Spawn(format!("worker did not answer: {e}")))?;
+        if let Err(e) = session.snapshot() {
+            let mut session = session;
+            let _ignored = session.close();
+            return Err(ProcessError::Spawn(format!("worker did not answer: {e}")));
+        }
         Ok(session)
     }
 
@@ -398,13 +413,87 @@ impl PtySession {
 
     /// Full grid snapshot: cells, cursor, and modes at one instant.
     ///
+    /// See [`PtySession::observe`] for the complete single-revision
+    /// observation (cursor, color, mode, capability, completeness, and
+    /// diagnostic facts alongside the grid).
+    ///
     /// # Errors
     ///
     /// Returns [`ProcessError::Closed`] when the session is shut down.
     pub fn snapshot(&self) -> Result<GridSnapshot, ProcessError> {
         let (tx, rx) = mpsc::channel();
-        self.send(Op::Snapshot(tx))?;
+        self.send(CtlOp::Snapshot(tx))?;
         recv_value(rx, "snapshot")
+    }
+
+    /// One complete owned observation at one worker revision: grid, cursor,
+    /// color, mode, capabilities, completeness, and diagnostics, all read
+    /// without an interleaving pump. No terminal parsing is needed to consume
+    /// it; pair with [`PtySession::wait_revision`] to observe across resizes
+    /// and repaints without races.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProcessError::Closed`] when the session is shut down.
+    pub fn observe(&self) -> Result<Observation, ProcessError> {
+        let (tx, rx) = mpsc::channel();
+        self.send(CtlOp::Observe(tx))?;
+        recv_value(rx, "observation")
+    }
+
+    /// Wait until the worker revision reaches `target` (see
+    /// [`Observation::revision`]), the session closes, or `deadline` passes.
+    /// Returns the current revision on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProcessError::Timeout`] on expiry, [`ProcessError::Closed`]
+    /// when the session shut down first.
+    pub fn wait_revision(&self, target: u64, deadline: Instant) -> Result<u64, ProcessError> {
+        match self.shared.wait_revision(target, deadline) {
+            Some(revision) => Ok(revision),
+            None => {
+                if self.shared.is_closed() {
+                    Err(ProcessError::Closed(
+                        "session closed before revision {target}".to_owned(),
+                    ))
+                } else {
+                    Err(ProcessError::Timeout(format!(
+                        "revision {target} not reached"
+                    )))
+                }
+            }
+        }
+    }
+
+    /// Wait until the worker completes a synchronized-update frame (DEC 2026
+    /// on→off) after this call, the session closes, or `deadline` passes.
+    /// Returns the completed-frame count on success.
+    ///
+    /// Only a completed frame satisfies this wait: a child that never opens a
+    /// synchronized update (mode currently off the whole time) yields
+    /// [`ProcessError::Timeout`], never a spurious success.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProcessError::Timeout`] on expiry, [`ProcessError::Closed`]
+    /// when the session shut down first.
+    pub fn wait_frame(&self, deadline: Instant) -> Result<u64, ProcessError> {
+        let baseline = self.shared.frames();
+        match self.shared.wait_frames_above(baseline, deadline) {
+            Some(frames) => Ok(frames),
+            None => {
+                if self.shared.is_closed() {
+                    Err(ProcessError::Closed(
+                        "session closed before synced frame".to_owned(),
+                    ))
+                } else {
+                    Err(ProcessError::Timeout(
+                        "no synchronized-update frame completed".to_owned(),
+                    ))
+                }
+            }
+        }
     }
 
     /// Escape codes reproducing the entire live grid state (see
@@ -416,7 +505,7 @@ impl PtySession {
     /// Returns [`ProcessError::Closed`] when the session is shut down.
     pub fn state_formatted(&self) -> Result<Vec<u8>, ProcessError> {
         let (tx, rx) = mpsc::channel();
-        self.send(Op::StateBytes(tx))?;
+        self.send(CtlOp::StateBytes(tx))?;
         recv_value(rx, "state snapshot")
     }
 
@@ -427,7 +516,7 @@ impl PtySession {
     /// Returns [`ProcessError::Closed`] when the session is shut down.
     pub fn dirty_spans(&self) -> Result<crate::damage::DirtySpans, ProcessError> {
         let (tx, rx) = mpsc::channel();
-        self.send(Op::DirtySpans(tx))?;
+        self.send(CtlOp::DirtySpans(tx))?;
         recv_value(rx, "dirty spans")
     }
 
@@ -435,29 +524,41 @@ impl PtySession {
     /// ...) since the last call. `Reply` events never appear here: the worker
     /// routes them to PTY stdin automatically.
     ///
+    /// At most `event_cap` events are stashed; past that the oldest are
+    /// dropped first and counted in [`Diagnostics::events_dropped`].
+    ///
     /// # Errors
     ///
     /// Returns [`ProcessError::Closed`] when the session is shut down.
     pub fn drain_events(&self) -> Result<Vec<PassthroughEvent>, ProcessError> {
         let (tx, rx) = mpsc::channel();
-        self.send(Op::Events(tx))?;
+        self.send(CtlOp::Events(tx))?;
         recv_value(rx, "events")
     }
 
-    /// Every output byte pumped so far. Empty unless
-    /// [`SessionOptions::record_output`] was set: replay into a same-size fresh
-    /// grid to reproduce the live state byte-for-byte.
+    /// Output bytes pumped so far, oldest prefix up to `output_cap_bytes`.
+    /// Empty unless [`SessionOptions::record_output`] was set: replay into a
+    /// same-size fresh grid to reproduce the live state byte-for-byte.
+    ///
+    /// The log freezes once the final outcome is declared or the cap is hit
+    /// ([`Diagnostics::output_truncated`]); [`Diagnostics::output_bytes_total`]
+    /// reports every byte seen regardless.
     ///
     /// # Errors
     ///
     /// Returns [`ProcessError::Closed`] when the session is shut down.
     pub fn output_log(&self) -> Result<Vec<u8>, ProcessError> {
         let (tx, rx) = mpsc::channel();
-        self.send(Op::OutputLog(tx))?;
+        self.send(CtlOp::OutputLog(tx))?;
         recv_value(rx, "output log")
     }
 
     /// Write raw bytes to the child's stdin.
+    ///
+    /// The write completes when the child consumes the bytes; it is chunked
+    /// so teardown stays responsive, but one chunk still blocks while the
+    /// child neither reads nor dies. Cancel via [`PtySession::close`]: the
+    /// teardown kill unblocks the write with an I/O error.
     ///
     /// # Errors
     ///
@@ -469,7 +570,7 @@ impl PtySession {
             return Err(ProcessError::InvalidInput("empty stdin write".to_owned()));
         }
         let (tx, rx) = mpsc::channel();
-        self.send(Op::Write {
+        self.send(CtlOp::Write {
             bytes: bytes.to_vec(),
             reply: tx,
         })?;
@@ -478,6 +579,10 @@ impl PtySession {
 
     /// Resize the PTY and the emulator together (PTY ioctl first: if the
     /// kernel refuses, the emulator stays consistent).
+    ///
+    /// The resize applies between pumped output batches: it may overtake bytes
+    /// still queued behind the worker. Pair with [`PtySession::wait_revision`]
+    /// to order observations against it.
     ///
     /// # Errors
     ///
@@ -495,7 +600,7 @@ impl PtySession {
             )));
         }
         let (tx, rx) = mpsc::channel();
-        self.send(Op::Resize {
+        self.send(CtlOp::Resize {
             cols,
             rows,
             reply: tx,
@@ -503,30 +608,63 @@ impl PtySession {
         recv_reply(rx, "resize")
     }
 
+    /// Update the OSC 10/11 colors the emulator reports to color queries.
+    /// `None` keeps the current value. Power-on defaults come from the model
+    /// profile; every update advances the worker revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProcessError::Closed`] when the session is shut down.
+    pub fn set_reported_colors(
+        &self,
+        fg: Option<(u8, u8, u8)>,
+        bg: Option<(u8, u8, u8)>,
+    ) -> Result<(), ProcessError> {
+        let (tx, rx) = mpsc::channel();
+        self.send(CtlOp::SetColors { fg, bg, reply: tx })?;
+        recv_reply(rx, "set reported colors")
+    }
+
     /// Deliver a signal to the direct child.
+    ///
+    /// The reaped check and the `kill` run atomically against the worker's
+    /// reap polling (F03): once the child is reaped, no signal can be
+    /// addressed at the pid again, so kernel pid reuse can never redirect it
+    /// at an unrelated process.
     ///
     /// # Errors
     ///
     /// Returns [`ProcessError::ChildExited`] when the child already exited,
     /// [`ProcessError::Signal`] when delivery failed.
     pub fn signal(&self, signal: Signal) -> Result<(), ProcessError> {
-        let pid = self
-            .pid
-            .ok_or_else(|| ProcessError::Signal("child PID unknown".to_owned()))?;
         if self.shared.exit().is_some() {
             return Err(ProcessError::ChildExited("child already exited".to_owned()));
         }
-        match crate::process::signal(pid, signal.number()) {
+        let pid = self.pid;
+        match self.killer.signal_locked(signal.number()) {
             Ok(()) => Ok(()),
             Err(crate::process::SignalError::NotFound { .. }) => Err(ProcessError::ChildExited(
-                format!("child {pid} no longer exists"),
+                format!("child {} no longer exists", pid.unwrap_or(0)),
             )),
-            Err(err) => Err(ProcessError::Signal(format!("kill({pid}) failed: {err}"))),
+            Err(crate::process::SignalError::UnknownPid) => {
+                Err(ProcessError::Signal("child PID unknown".to_owned()))
+            }
+            Err(err) => Err(ProcessError::Signal(format!(
+                "kill({}) failed: {err}",
+                pid.unwrap_or(0)
+            ))),
         }
     }
 
-    /// Close the child's stdin (EOF). A second call reports
+    /// Close the child's stdin: drops the PTY writer, which asks the backend
+    /// to inject its EOF sequence (newline + `VEOF`). A second call reports
     /// [`ProcessError::Closed`].
+    ///
+    /// This is a canonical-mode EOF request, not a universal half-close:
+    /// a child in canonical mode (`cat`) reads EOF and typically exits, but
+    /// a child in raw mode sees the injected bytes as ordinary input and may
+    /// keep running. Portable PTYs offer no true half-close; use
+    /// [`PtySession::close`] to guarantee termination.
     ///
     /// # Errors
     ///
@@ -534,28 +672,48 @@ impl PtySession {
     /// [`ProcessError::Closed`] when stdin is already closed.
     pub fn close_input(&self) -> Result<(), ProcessError> {
         let (tx, rx) = mpsc::channel();
-        self.send(Op::CloseInput { reply: tx })?;
+        self.send(CtlOp::CloseInput { reply: tx })?;
         recv_reply(rx, "close stdin")
     }
 
-    /// Non-blocking exit poll: `Some` once the child is reaped and trailing
-    /// output drained, `None` while it runs.
+    /// Non-blocking exit poll: `Some` once the final outcome is declared
+    /// (child reaped plus stream resolved), `None` while it runs. See
+    /// [`PtySession::poll_outcome`] for the full outcome.
     #[must_use]
     pub fn poll_exit(&self) -> Option<ExitStatus> {
         self.shared.exit()
     }
 
-    /// Wait until the direct child exits, is reaped, and trailing output is
-    /// drained — or `deadline` passes.
+    /// Non-blocking outcome poll: `Some` once the final outcome is declared —
+    /// child exit plus stream completeness — `None` while capture runs.
+    #[must_use]
+    pub fn poll_outcome(&self) -> Option<CaptureOutcome> {
+        self.shared.outcome()
+    }
+
+    /// Wait until the direct child exits, is reaped, and the output stream
+    /// resolves (clean EOF, read failure, or drain-grace expiry) — or
+    /// `deadline` passes.
     ///
     /// # Errors
     ///
     /// Returns [`ProcessError::Timeout`] on expiry,
     /// [`ProcessError::Closed`] when the session shut down without an exit.
     pub fn wait_exit(&self, deadline: Instant) -> Result<ExitStatus, ProcessError> {
+        Ok(self.wait_outcome(deadline)?.exit)
+    }
+
+    /// Wait until the final capture outcome is declared — child reaped plus
+    /// stream resolved — or `deadline` passes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProcessError::Timeout`] on expiry,
+    /// [`ProcessError::Closed`] when the session shut down without an exit.
+    pub fn wait_outcome(&self, deadline: Instant) -> Result<CaptureOutcome, ProcessError> {
         loop {
-            if let Some(status) = self.shared.exit() {
-                return Ok(status);
+            if let Some(outcome) = self.shared.outcome() {
+                return Ok(outcome);
             }
             if self.shared.is_closed() {
                 return Err(ProcessError::Closed(
@@ -565,7 +723,7 @@ impl PtySession {
             if Instant::now() >= deadline {
                 return Err(ProcessError::Timeout("child still alive".to_owned()));
             }
-            self.shared.wait_exit_changed(deadline);
+            self.shared.wait_outcome_changed(deadline);
         }
     }
 
@@ -601,8 +759,9 @@ impl PtySession {
         }
     }
 
-    /// Forceful idempotent teardown: kill a living child (bounded grace),
-    /// reap, join threads. Returns the first teardown error, if any.
+    /// Forceful idempotent teardown: flag the worker, kill a living child
+    /// (which unblocks any in-flight PTY I/O), reap, really join both threads.
+    /// Returns the first teardown error, if any.
     ///
     /// # Errors
     ///
@@ -617,11 +776,11 @@ impl PtySession {
 
     // -- internals ---------------------------------------------------------
 
-    fn send(&self, op: Op) -> Result<(), ProcessError> {
+    fn send(&self, op: CtlOp) -> Result<(), ProcessError> {
         if self.closed.load(Ordering::SeqCst) {
             return Err(ProcessError::Closed("session is closed".to_owned()));
         }
-        let tx = self.op_tx.lock().unwrap_or_else(PoisonError::into_inner);
+        let tx = self.ctl_tx.lock().unwrap_or_else(PoisonError::into_inner);
         match tx.as_ref() {
             Some(tx) => tx
                 .send(op)
@@ -631,6 +790,12 @@ impl PtySession {
     }
 
     /// Run teardown exactly once; never panics (safe from `Drop`).
+    ///
+    /// Kill-first discipline: the shutdown flag aborts in-flight writes, the
+    /// kill unblocks any PTY read/write sitting in the kernel with EOF/`EIO`,
+    /// and only then are the threads joined — really joined, never detached.
+    /// After the worker is gone the child is reaped here (normally a cached
+    /// no-op: the worker already reaped it).
     fn teardown(&mut self) {
         if self.closed.swap(true, Ordering::SeqCst) {
             // A previous close/drop already shut down; still join in case a
@@ -638,23 +803,41 @@ impl PtySession {
             self.join_threads();
             return;
         }
+        self.shutdown.store(true, Ordering::SeqCst);
+        if let Err(e) = self.killer.kill_locked() {
+            self.shared
+                .record_teardown(&format!("child kill during teardown failed: {e}"));
+        }
         {
-            let mut tx = self.op_tx.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut tx = self.ctl_tx.lock().unwrap_or_else(PoisonError::into_inner);
             if let Some(tx) = tx.take() {
-                let _ignored = tx.send(Op::Shutdown);
+                let _ignored = tx.send(CtlOp::Shutdown);
             }
         }
         self.join_threads();
+        // Reap here: the worker normally already did (cached, no syscall),
+        // but a panicked worker may not have, and the pid must not leak as a
+        // zombie owned by us.
+        if let Err(e) = self.killer.wait_locked() {
+            self.shared
+                .record_teardown(&format!("child reap during teardown failed: {e}"));
+        }
     }
 
     fn join_threads(&mut self) {
         let worker = self.worker.lock().map_or(None, |mut g| g.take());
         let reader = self.reader.lock().map_or(None, |mut g| g.take());
-        if let Some(h) = worker {
-            join_one(h, &self.shared, "worker", JOIN_GRACE);
+        // Worker first: its exit drops the data channel, which releases a
+        // reader blocked on a full bounded queue.
+        if let Some(h) = worker
+            && h.join().is_err()
+        {
+            self.shared.record_teardown("worker thread panicked");
         }
-        if let Some(h) = reader {
-            join_one(h, &self.shared, "reader", JOIN_GRACE);
+        if let Some(h) = reader
+            && h.join().is_err()
+        {
+            self.shared.record_teardown("reader thread panicked");
         }
         self.shared.mark_closed();
     }
@@ -664,30 +847,6 @@ impl Drop for PtySession {
     fn drop(&mut self) {
         // Never panic from Drop: teardown paths only record errors.
         self.teardown();
-    }
-}
-
-/// Bounded join of one session thread; never blocks past `grace`, never
-/// panics. On timeout the handle is detached and a teardown diagnostic is
-/// recorded, so `Drop` can never hang on a reader blocked in `read()`
-/// after a failed child kill.
-fn join_one(h: std::thread::JoinHandle<()>, shared: &Shared, name: &str, grace: Duration) {
-    let (tx, rx) = mpsc::channel::<bool>();
-    let waiter = std::thread::Builder::new()
-        .name(format!("termpane-session-join-{name}"))
-        .spawn(move || {
-            let panicked = h.join().is_err();
-            let _ignored = tx.send(panicked);
-        });
-    match waiter {
-        Ok(_waiter) => match rx.recv_timeout(grace) {
-            Ok(true) => shared.record_teardown(&format!("{name} thread panicked")),
-            Ok(false) => {}
-            Err(_) => shared.record_teardown(&format!(
-                "{name} thread did not exit within {grace:?}; detached"
-            )),
-        },
-        Err(e) => shared.record_teardown(&format!("join waiter spawn failed for {name}: {e}")),
     }
 }
 
@@ -708,288 +867,4 @@ fn recv_value<T>(rx: mpsc::Receiver<T>, what: &str) -> Result<T, ProcessError> {
             ProcessError::Timeout(format!("{what}: worker unresponsive"))
         }
     })
-}
-
-// ---------------------------------------------------------------------------
-// Worker thread: sole owner of grid, writer, and child
-// ---------------------------------------------------------------------------
-
-#[derive(Debug)]
-enum Op {
-    Feed(Vec<u8>),
-    Eof,
-    Snapshot(mpsc::Sender<GridSnapshot>),
-    StateBytes(mpsc::Sender<Vec<u8>>),
-    DirtySpans(mpsc::Sender<crate::damage::DirtySpans>),
-    Events(mpsc::Sender<Vec<PassthroughEvent>>),
-    OutputLog(mpsc::Sender<Vec<u8>>),
-    Write {
-        bytes: Vec<u8>,
-        reply: mpsc::Sender<Result<(), ProcessError>>,
-    },
-    Resize {
-        cols: u16,
-        rows: u16,
-        reply: mpsc::Sender<Result<(), ProcessError>>,
-    },
-    CloseInput {
-        reply: mpsc::Sender<Result<(), ProcessError>>,
-    },
-    Shutdown,
-}
-
-struct Worker {
-    master: Master,
-    child: PtyChild,
-    writer: Option<PtyWriter>,
-    grid: DamageGrid,
-    events: Vec<PassthroughEvent>,
-    output_log: Vec<u8>,
-    record_output: bool,
-    eof: bool,
-    exited: Option<ExitStatus>,
-    exit_seen_at: Option<Instant>,
-    finalized: bool,
-    shared: Arc<Shared>,
-}
-
-#[expect(
-    clippy::too_many_arguments,
-    reason = "worker entry takes its owned resources explicitly; a parameter \
-              struct would only rename the same nine fields"
-)]
-fn run_worker(
-    master: Master,
-    child: PtyChild,
-    writer: PtyWriter,
-    cols: u16,
-    rows: u16,
-    scrollback: usize,
-    record_output: bool,
-    op_rx: mpsc::Receiver<Op>,
-    shared: Arc<Shared>,
-) {
-    let mut worker = Worker {
-        master,
-        child,
-        writer: Some(writer),
-        grid: DamageGrid::new(rows, cols, scrollback),
-        events: Vec::new(),
-        output_log: Vec::new(),
-        record_output,
-        eof: false,
-        exited: None,
-        exit_seen_at: None,
-        finalized: false,
-        shared,
-    };
-
-    loop {
-        match op_rx.recv_timeout(WORKER_TICK) {
-            Ok(op) => {
-                if worker.handle_op(op) {
-                    return;
-                }
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                // Handle and reader both gone: reap and go away quietly.
-                shutdown_child(&mut worker.child, &worker.shared);
-                worker.shared.mark_closed();
-                return;
-            }
-        }
-        worker.poll_exit_state();
-    }
-}
-
-impl Worker {
-    /// Handle one op. Returns true when the worker must exit.
-    fn handle_op(&mut self, op: Op) -> bool {
-        match op {
-            Op::Feed(bytes) => self.feed(bytes),
-            Op::Eof => self.eof = true,
-            Op::Snapshot(reply) => {
-                let _ignored = reply.send(self.grid.dump());
-            }
-            Op::StateBytes(reply) => {
-                let _ignored = reply.send(self.grid.state_formatted());
-            }
-            Op::DirtySpans(reply) => {
-                let _ignored = reply.send(self.grid.dirty_spans());
-            }
-            Op::Events(reply) => {
-                let _ignored = reply.send(std::mem::take(&mut self.events));
-            }
-            Op::OutputLog(reply) => {
-                let _ignored = reply.send(self.output_log.clone());
-            }
-            Op::Write { bytes, reply } => {
-                let r = self.apply_write(&bytes);
-                let _ignored = reply.send(r);
-            }
-            Op::Resize { cols, rows, reply } => {
-                let r = self.apply_resize(cols, rows);
-                let _ignored = reply.send(r);
-            }
-            Op::CloseInput { reply } => {
-                let r = self.close_input();
-                let _ignored = reply.send(r);
-            }
-            Op::Shutdown => {
-                shutdown_child(&mut self.child, &self.shared);
-                if let Ok(Some(status)) = self.child.try_wait() {
-                    self.exited = Some(status);
-                }
-                if !self.finalized {
-                    self.shared
-                        .publish_exit(self.exited.clone().unwrap_or_else(ExitStatus::unknown));
-                }
-                self.shared.mark_closed();
-                return true;
-            }
-        }
-        false
-    }
-
-    fn feed(&mut self, bytes: Vec<u8>) {
-        self.grid.process(&bytes);
-        if self.record_output {
-            self.output_log.extend_from_slice(&bytes);
-        }
-        for event in self.grid.drain_passthrough() {
-            match event {
-                PassthroughEvent::Reply(reply) => {
-                    // Route emulator answers (DA/DSR/DECRQM/kitty queries)
-                    // to PTY stdin. Best-effort: a failed write means the
-                    // child is dying anyway.
-                    if let Some(w) = self.writer.as_mut() {
-                        let _ignored = w.write_all(&reply);
-                    }
-                }
-                other => self.events.push(other),
-            }
-        }
-    }
-
-    fn apply_write(&mut self, bytes: &[u8]) -> Result<(), ProcessError> {
-        if self.exited.is_some() {
-            return Err(ProcessError::ChildExited("child already exited".to_owned()));
-        }
-        let writer = self
-            .writer
-            .as_mut()
-            .ok_or_else(|| ProcessError::Closed("stdin is closed".to_owned()))?;
-        writer
-            .write_all(bytes)
-            .map_err(|e| ProcessError::Io(format!("pty write failed: {e}")))
-    }
-
-    fn apply_resize(&mut self, cols: u16, rows: u16) -> Result<(), ProcessError> {
-        // PTY first: if the kernel refuses, the emulator stays consistent.
-        self.master
-            .resize(cols, rows)
-            .map_err(|e| ProcessError::Io(format!("pty resize failed: {e}")))?;
-        self.grid.set_size(rows, cols);
-        Ok(())
-    }
-
-    fn close_input(&mut self) -> Result<(), ProcessError> {
-        if self.exited.is_some() {
-            return Err(ProcessError::ChildExited("child already exited".to_owned()));
-        }
-        if self.writer.take().is_some() {
-            Ok(())
-        } else {
-            Err(ProcessError::Closed("stdin already closed".to_owned()))
-        }
-    }
-
-    /// Reap promptly, but give trailing output `DRAIN_GRACE` after the child
-    /// dies before publishing the final exit.
-    fn poll_exit_state(&mut self) {
-        if self.finalized {
-            return;
-        }
-        if self.exited.is_none() {
-            // A failed poll is transient (the backend retries next tick);
-            // only a reaped status counts as an exit sighting.
-            if let Some(status) = self.child.try_wait().ok().flatten() {
-                self.exited = Some(status);
-                self.exit_seen_at = Some(Instant::now());
-            }
-        }
-        let drained = self.eof
-            || self
-                .exit_seen_at
-                .is_some_and(|t| t.elapsed() >= DRAIN_GRACE);
-        if self.exited.is_some() && drained {
-            self.finalized = true;
-            if let Some(status) = self.exited.clone() {
-                self.shared.publish_exit(status);
-            }
-        }
-    }
-}
-
-/// Bounded kill + reap on a worker-owned thread. Records teardown errors
-/// instead of failing; never blocks past `KILL_GRACE`.
-fn shutdown_child(child: &mut PtyChild, shared: &Shared) {
-    match child.try_wait() {
-        Ok(Some(_)) => return,
-        Ok(None) => {}
-        Err(e) => {
-            shared.record_teardown(&format!("child poll during teardown failed: {e}"));
-        }
-    }
-    if let Err(e) = child.kill() {
-        shared.record_teardown(&format!("child kill during teardown failed: {e}"));
-    }
-    let deadline = Instant::now() + KILL_GRACE;
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => return,
-            Ok(None) => {}
-            Err(e) => {
-                shared.record_teardown(&format!("child reap during teardown failed: {e}"));
-                return;
-            }
-        }
-        if Instant::now() >= deadline {
-            shared.record_teardown("child still alive after kill grace");
-            return;
-        }
-        // The teardown poll sleeps on a worker-owned OS thread (never a
-        // render/runtime thread), which the disallowed-methods policy
-        // explicitly permits.
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "reap poll on a worker-owned OS thread — exactly the \
-                      carve-out the policy names"
-        )]
-        std::thread::sleep(Duration::from_millis(10));
-    }
-}
-
-fn run_reader(mut reader: PtyReader, tx: mpsc::Sender<Op>) {
-    let mut buf = vec![0u8; 8192];
-    loop {
-        match reader.read(&mut buf) {
-            Ok(0) => {
-                let _ignored = tx.send(Op::Eof);
-                return;
-            }
-            Ok(n) => {
-                if tx.send(Op::Feed(buf[..n].to_vec())).is_err() {
-                    return;
-                }
-            }
-            // A read error at EOF (e.g. Linux EIO after child death) ends
-            // the pump; the exit status is authoritative, not the error.
-            Err(_) => {
-                let _ignored = tx.send(Op::Eof);
-                return;
-            }
-        }
-    }
 }
