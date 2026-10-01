@@ -91,7 +91,7 @@ jobs:
     name: Release publish
     runs-on: ubuntu-26.04
     timeout-minutes: 10
-    environment: crates-io
+    environment: release
     permissions:
       contents: write
       pull-requests: read
@@ -129,7 +129,7 @@ jobs:
     name: Release bootstrap publish
     runs-on: ubuntu-26.04
     timeout-minutes: 10
-    environment: crates-io
+    environment: release
     permissions:
       contents: write
       pull-requests: read
