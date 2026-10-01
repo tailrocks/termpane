@@ -161,7 +161,7 @@ pub fn openpty(cols: u16, rows: u16) -> Result<(Master, Slave), PtyError> {
 /// Take the reader/writer from the [`Master`] before polling the child.
 ///
 /// Environment: inherited entries plus the child-only edits in the
-/// [`SpawnParams`](crate::process::SpawnParams) order (clear, removals,
+/// [`SpawnParams`] order (clear, removals,
 /// overrides). Backend caveat: `portable-pty` always re-adds `SHELL` at
 /// spawn, so a cleared child still sees `SHELL`, removing `SHELL` is
 /// ineffective, and only a `SHELL` override changes it.
