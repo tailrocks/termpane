@@ -37,6 +37,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          fetch-depth: "0"
+          persist-credentials: "false"
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: "0"
+          path: release-source
           persist-credentials: "false"
           ref: dc40286f9a8942f19f3a4cdebaaf1e18b7321709
       - name: Setup Mise
@@ -49,7 +56,9 @@ jobs:
           sha256: d24fe0bf7e613824ad99f7b8dac3f2b381a37b9f75f84dd250855217095a8de4
           version: 2026.9.18
       - name: Validate exact source
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 release-plz@0.3.169 -- release-plz release --config .github/release-plz.toml --manifest-path Cargo.toml --registry crates-io --dry-run
+        env:
+          GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 release-plz@0.3.169 -- release-plz release --config .github/release-plz-bootstrap.toml --manifest-path release-source/Cargo.toml --dry-run
   release-preparation:
     name: Release preparation
     runs-on: ubuntu-26.04
@@ -61,8 +70,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          persist-credentials: "false"
-          ref: dc40286f9a8942f19f3a4cdebaaf1e18b7321709
+          fetch-depth: "0"
+          persist-credentials: "true"
       - name: Setup Mise
         uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5
         with:
@@ -73,7 +82,9 @@ jobs:
           sha256: d24fe0bf7e613824ad99f7b8dac3f2b381a37b9f75f84dd250855217095a8de4
           version: 2026.9.18
       - name: Prepare release PR
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 release-plz@0.3.169 -- release-plz release-pr --config .github/release-plz.toml --manifest-path Cargo.toml --registry crates-io
+        env:
+          GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 release-plz@0.3.169 -- release-plz release-pr --config .github/release-plz.toml --manifest-path Cargo.toml
   release-publish:
     name: Release publish
     runs-on: ubuntu-26.04
@@ -89,7 +100,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          fetch-depth: "0"
           persist-credentials: "false"
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: "0"
+          path: release-source
+          persist-credentials: "true"
           ref: dc40286f9a8942f19f3a4cdebaaf1e18b7321709
       - name: Setup Mise
         uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5
@@ -101,7 +119,9 @@ jobs:
           sha256: d24fe0bf7e613824ad99f7b8dac3f2b381a37b9f75f84dd250855217095a8de4
           version: 2026.9.18
       - name: Publish release
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 release-plz@0.3.169 -- release-plz release --config .github/release-plz.toml --manifest-path Cargo.toml --registry crates-io
+        env:
+          GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 release-plz@0.3.169 -- release-plz release --config .github/release-plz.toml --manifest-path release-source/Cargo.toml
   release-publish-bootstrap:
     name: Release bootstrap publish
     runs-on: ubuntu-26.04
@@ -117,7 +137,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          fetch-depth: "0"
           persist-credentials: "false"
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: "0"
+          path: release-source
+          persist-credentials: "true"
           ref: dc40286f9a8942f19f3a4cdebaaf1e18b7321709
       - name: Setup Mise
         uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5
@@ -131,7 +158,8 @@ jobs:
       - name: Publish first release
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 release-plz@0.3.169 -- release-plz release --config .github/release-plz-bootstrap.toml --manifest-path Cargo.toml --registry crates-io
+          GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 release-plz@0.3.169 -- release-plz release --config .github/release-plz-bootstrap.toml --manifest-path release-source/Cargo.toml
   release-reconcile:
     name: Release reconcile
     runs-on: ubuntu-26.04
@@ -147,8 +175,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          fetch-depth: "0"
           persist-credentials: "false"
-          ref: dc40286f9a8942f19f3a4cdebaaf1e18b7321709
       - name: Setup Mise
         uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5
         with:
@@ -159,4 +187,6 @@ jobs:
           sha256: d24fe0bf7e613824ad99f7b8dac3f2b381a37b9f75f84dd250855217095a8de4
           version: 2026.9.18
       - name: Verify published state
-        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 release-plz@0.3.169 -- release-plz release --config .github/release-plz.toml --manifest-path Cargo.toml --registry crates-io --dry-run
+        env:
+          GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: mise --no-config --no-env --no-hooks exec rust@1.98.1 release-plz@0.3.169 -- release-plz release --config .github/release-plz.toml --manifest-path Cargo.toml --dry-run
