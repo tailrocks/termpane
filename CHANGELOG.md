@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1](https://github.com/tailrocks/termpane/compare/termpane-v0.1.0...termpane-v0.1.1) - 2026-10-17
+
+### Added
+
+- *(ci)* adopt velnor-actions seed9 (release env) ([#30](https://github.com/tailrocks/termpane/pull/30))
+- *(ci)* adopt velnor-actions seed7 (release.yml rename) ([#28](https://github.com/tailrocks/termpane/pull/28))
+- *(ci)* adopt velnor-actions seed6 ([#27](https://github.com/tailrocks/termpane/pull/27))
+- *(ci)* adopt Velnor Actions consumer-v1 automation ([#26](https://github.com/tailrocks/termpane/pull/26))
+
+### Other
+
+- migrate to velnor-actions 0.1.12 ([#34](https://github.com/tailrocks/termpane/pull/34))
+- migrate to velnor-actions 0.1.10 ([#33](https://github.com/tailrocks/termpane/pull/33))
+- consolidate all legitimate work from all branches ([#32](https://github.com/tailrocks/termpane/pull/32))
+- migrate to velnor-actions 0.1.0 ([#31](https://github.com/tailrocks/termpane/pull/31))
+
 ### Added
 
 - Live PTY sessions (`termpane::session`, Unix-only `pty` feature): spawns
