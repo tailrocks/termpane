@@ -29,7 +29,10 @@ compile_error!("termpane `pty` feature requires a Unix target");
 
 pub use cell::{Attrs, Cell, Color, Hyperlink, UnderlineStyle};
 pub use damage::{DirtySpans, DirtyTracker};
-pub use grid::{DamageGrid, MouseProtocolEncoding, MouseProtocolMode, RowArena, RowWrap, ScrollOp};
+pub use grid::{
+    DamageGrid, EraseDisplayPolicy, MouseProtocolEncoding, MouseProtocolMode, RowArena, RowWrap,
+    ScrollOp,
+};
 pub use passthrough::{PassthroughBuffer, PassthroughEvent};
 pub use snapshot::{GridPatch, GridSnapshot, GridView, SnapCell};
 pub use width::{Osc8Policy, SupportedSgr, VirtualTerminalProfile, display_width};

@@ -468,6 +468,278 @@ fn repeated_clear_without_mutation_preserves_exactly_once() {
     );
 }
 
+fn scrollback_text(grid: &DamageGrid) -> Vec<String> {
+    grid.scrollback_rows_at_offset(grid.scrollback_len(), grid.scrollback_len())
+        .into_iter()
+        .map(|row| {
+            row.iter()
+                .map(|cell| cell.contents.as_str())
+                .collect::<String>()
+                .trim_end()
+                .to_owned()
+        })
+        .collect()
+}
+
+fn visible_text(grid: &DamageGrid) -> Vec<String> {
+    let (rows, cols) = grid.size();
+    (0..rows)
+        .map(|r| {
+            (0..cols)
+                .filter_map(|c| grid.cell(r, c))
+                .map(|cell| cell.contents.as_str())
+                .collect::<String>()
+                .trim_end()
+                .to_owned()
+        })
+        .collect()
+}
+
+fn discarding_grid(rows: u16, cols: u16, limit: usize) -> DamageGrid {
+    let mut grid = DamageGrid::new(rows, cols, limit);
+    grid.set_erase_display_policy(EraseDisplayPolicy::Discard);
+    grid
+}
+
+#[test]
+fn erase_display_policy_defaults_to_save_to_scrollback() {
+    let grid = DamageGrid::new(5, 20, 100);
+    assert_eq!(
+        grid.erase_display_policy(),
+        EraseDisplayPolicy::SaveToScrollback
+    );
+    assert_eq!(
+        EraseDisplayPolicy::default(),
+        EraseDisplayPolicy::SaveToScrollback
+    );
+}
+
+#[test]
+fn save_policy_ed2_pushes_the_visible_rows() {
+    let mut grid = DamageGrid::new(5, 20, 100);
+    grid.set_erase_display_policy(EraseDisplayPolicy::SaveToScrollback);
+    grid.process(b"alpha\r\nbeta\x1b[2J\x1b[H");
+    assert_eq!(scrollback_text(&grid), ["alpha", "beta"]);
+    assert_eq!(visible_text(&grid), ["", "", "", "", ""]);
+}
+
+#[test]
+fn discard_policy_ed2_clears_without_pushing() {
+    let mut grid = discarding_grid(5, 20, 100);
+    grid.process(b"alpha\r\nbeta\x1b[2J\x1b[Hready $ ");
+    assert_eq!(grid.scrollback_len(), 0);
+    assert_eq!(visible_text(&grid), ["ready $", "", "", "", ""]);
+    assert_eq!((grid.cursor_row, grid.cursor_col), (0, 8));
+}
+
+#[test]
+fn discard_policy_ed0_at_home_clears_without_pushing() {
+    let mut save = DamageGrid::new(5, 20, 100);
+    let mut discard = discarding_grid(5, 20, 100);
+    for grid in [&mut save, &mut discard] {
+        grid.process(b"alpha\r\nbeta\x1b[H\x1b[J");
+    }
+    assert_eq!(scrollback_text(&save), ["alpha", "beta"]);
+    assert_eq!(discard.scrollback_len(), 0);
+    assert_eq!(visible_text(&save), visible_text(&discard));
+}
+
+#[test]
+fn discard_policy_leaves_ed3_and_normal_scrolling_unchanged() {
+    let mut grid = discarding_grid(3, 20, 100);
+    grid.process(b"one\r\ntwo\r\nthree\r\nfour");
+    assert_eq!(scrollback_text(&grid), ["one"]);
+    grid.process(b"\x1b[2J\x1b[H");
+    assert_eq!(scrollback_text(&grid), ["one"], "ED2 must not add rows");
+
+    grid.process(b"\x1b[3J");
+    assert_eq!(grid.scrollback_len(), 0, "ED3 still empties scrollback");
+    assert!(
+        grid.drain_passthrough()
+            .iter()
+            .any(|e| matches!(e, PassthroughEvent::ScrollbackClear)),
+        "ED3 still emits ScrollbackClear"
+    );
+
+    grid.process(b"a\r\nb\r\nc\r\nd");
+    assert_eq!(
+        scrollback_text(&grid),
+        ["a"],
+        "scrolling past the bottom still saves rows"
+    );
+}
+
+#[test]
+fn ed3_clears_scrollback_under_both_policies() {
+    for policy in [
+        EraseDisplayPolicy::SaveToScrollback,
+        EraseDisplayPolicy::Discard,
+    ] {
+        let mut grid = DamageGrid::new(3, 20, 100);
+        grid.set_erase_display_policy(policy);
+        grid.process(b"one\r\ntwo\r\nthree\r\nfour\x1b[3J");
+        assert_eq!(grid.scrollback_len(), 0, "{policy:?}");
+        assert_eq!(visible_text(&grid), ["", "", ""], "{policy:?}");
+    }
+}
+
+#[test]
+fn alternate_screen_never_feeds_scrollback_under_either_policy() {
+    for policy in [
+        EraseDisplayPolicy::SaveToScrollback,
+        EraseDisplayPolicy::Discard,
+    ] {
+        let mut grid = DamageGrid::new(4, 20, 100);
+        grid.set_erase_display_policy(policy);
+        grid.process(b"\x1b[?1049hfull\r\nscreen\x1b[2J\x1b[H\x1b[J");
+        assert!(grid.alternate_screen());
+        assert_eq!(grid.scrollback_len(), 0, "{policy:?}");
+        assert_eq!(visible_text(&grid), ["", "", "", ""], "{policy:?}");
+        grid.process(b"\x1b[?1049l");
+        assert_eq!(grid.scrollback_len(), 0, "{policy:?}");
+    }
+}
+
+#[test]
+fn primary_screen_clear_after_leaving_the_alternate_screen_follows_the_policy() {
+    let mut save = DamageGrid::new(4, 20, 100);
+    let mut discard = discarding_grid(4, 20, 100);
+    for grid in [&mut save, &mut discard] {
+        grid.process(b"prompt\x1b[?1049hfull\x1b[2J\x1b[?1049l\x1b[2J");
+    }
+    assert_eq!(scrollback_text(&save), ["prompt"]);
+    assert_eq!(discard.scrollback_len(), 0);
+}
+
+#[test]
+fn erase_display_policy_never_changes_the_visible_result() {
+    let stream: &[u8] = b"\x1b[1;31mred\x1b[0m\r\nplain\x1b[2;3H\x1b[J\x1b[2Jafter\x1b[H\x1b[J";
+    let mut save = DamageGrid::new(5, 20, 100);
+    let mut discard = discarding_grid(5, 20, 100);
+    save.process(stream);
+    discard.process(stream);
+    assert_eq!(visible_text(&save), visible_text(&discard));
+    assert_eq!(
+        (save.cursor_row, save.cursor_col),
+        (discard.cursor_row, discard.cursor_col)
+    );
+    assert!(save.scrollback_len() > discard.scrollback_len());
+}
+
+#[test]
+fn erase_display_marks_the_whole_screen_dirty_under_both_policies() {
+    for policy in [
+        EraseDisplayPolicy::SaveToScrollback,
+        EraseDisplayPolicy::Discard,
+    ] {
+        let mut grid = DamageGrid::new(5, 20, 100);
+        grid.set_erase_display_policy(policy);
+        grid.process(b"alpha\r\nbeta");
+        drop(grid.dirty_spans());
+        grid.process(b"\x1b[2J");
+        assert!(
+            matches!(grid.dirty_spans(), DirtySpans::All),
+            "{policy:?}: ED2 must report full damage"
+        );
+        assert!(
+            !grid.dirty.is_dirty(),
+            "{policy:?}: damage drains after the take"
+        );
+    }
+}
+
+#[test]
+fn erase_display_records_no_scroll_ops_under_either_policy() {
+    // Saved rows reach scrollback directly, not through ScrollOp. A consumer
+    // that counts rows pushed (scroll ops, or scrollback_len deltas) sees
+    // exactly the same ops, and under Discard no scrollback growth either.
+    for (policy, expect_len) in [
+        (EraseDisplayPolicy::SaveToScrollback, 2),
+        (EraseDisplayPolicy::Discard, 0),
+    ] {
+        let mut grid = DamageGrid::new(5, 20, 100);
+        grid.set_erase_display_policy(policy);
+        grid.process(b"alpha\r\nbeta");
+        grid.clear_scroll_ops();
+        let before = grid.scrollback_len();
+        grid.process(b"\x1b[2J\x1b[H");
+        assert!(grid.drain_scroll_ops().is_empty(), "{policy:?}");
+        assert_eq!(grid.scrollback_len() - before, expect_len, "{policy:?}");
+    }
+}
+
+#[test]
+fn discard_policy_scroll_pushes_match_scroll_ops_across_clears() {
+    // Under Discard every row that enters scrollback comes from a
+    // ScrollOp::Up at row 0, so op counts alone reproduce scrollback_len
+    // (below the limit) no matter how many clears interleave.
+    let mut grid = discarding_grid(3, 20, 100);
+    let mut pushed = 0usize;
+    for chunk in [
+        &b"a\r\nb\r\nc\r\nd\r\ne"[..],
+        b"\x1b[2J\x1b[H",
+        b"f\r\ng\r\nh\r\ni",
+        b"\x1b[H\x1b[J",
+        b"j\r\nk\r\nl\r\nm\r\nn",
+    ] {
+        grid.process(chunk);
+        pushed += grid
+            .drain_scroll_ops()
+            .iter()
+            .map(|op| match op {
+                ScrollOp::Up { top: 0, rows, .. } => usize::from(*rows),
+                _ => 0,
+            })
+            .sum::<usize>();
+        assert_eq!(grid.scrollback_len(), pushed);
+    }
+}
+
+#[test]
+fn switching_policy_applies_to_later_clears_only() {
+    let mut grid = discarding_grid(5, 20, 100);
+    grid.process(b"alpha\x1b[2J\x1b[H");
+    assert_eq!(grid.scrollback_len(), 0);
+
+    grid.set_erase_display_policy(EraseDisplayPolicy::SaveToScrollback);
+    grid.process(b"\x1b[2J");
+    assert_eq!(
+        grid.scrollback_len(),
+        0,
+        "the discarded rows are gone, the blank screen saves nothing"
+    );
+    grid.process(b"beta\x1b[2J\x1b[H");
+    assert_eq!(scrollback_text(&grid), ["beta"]);
+
+    grid.set_erase_display_policy(EraseDisplayPolicy::Discard);
+    grid.process(b"gamma\x1b[2J\x1b[H");
+    assert_eq!(scrollback_text(&grid), ["beta"], "rows already saved stay");
+}
+
+#[test]
+fn erase_display_policy_survives_ris_and_resize() {
+    let mut grid = discarding_grid(5, 20, 100);
+    grid.process(b"alpha\x1bc");
+    assert_eq!(grid.erase_display_policy(), EraseDisplayPolicy::Discard);
+    grid.set_size(6, 30);
+    grid.process(b"beta\x1b[2J");
+    assert_eq!(grid.erase_display_policy(), EraseDisplayPolicy::Discard);
+    assert_eq!(grid.scrollback_len(), 0);
+}
+
+#[test]
+fn discard_policy_with_zero_scrollback_limit_is_inert() {
+    for policy in [
+        EraseDisplayPolicy::SaveToScrollback,
+        EraseDisplayPolicy::Discard,
+    ] {
+        let mut grid = DamageGrid::new(5, 20, 0);
+        grid.set_erase_display_policy(policy);
+        grid.process(b"alpha\x1b[2J");
+        assert_eq!(grid.scrollback_len(), 0, "{policy:?}");
+    }
+}
+
 #[test]
 fn plain_line_feed_marks_no_damage() {
     let mut grid = DamageGrid::new(5, 20, 10);

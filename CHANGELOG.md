@@ -7,19 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-03
+
 ### Added
 
-- Live PTY sessions (`termpane::session`, Unix-only `pty` feature): spawns
-  `SpawnParams` into a PTY, pumps output through `DamageGrid` on a worker
-  thread, and routes emulator replies (DA/DSR/DECRQM answers) back to PTY
-  stdin automatically. Covers `TERM`/`COLORTERM` defaulting from
-  `VirtualTerminalProfile`, atomic PTY+grid resize, signals via the
-  transport, `poll_exit`/`wait_exit` with trailing-output drain,
-  `close_input` (EOF), graceful `finish` and forceful idempotent `close`
-  (all teardown bounded; `Drop` never hangs), plus `output_log` recording so
-  live state can be verified against byte replay via
-  `state_formatted`/`state_eq`. Hermetic conformance suite in
-  `tests/session.rs`.
+- `EraseDisplayPolicy` and `DamageGrid::set_erase_display_policy` /
+  `erase_display_policy`: choose whether a full-screen erase (`CSI 2 J`, and
+  `CSI J` at the home cursor) on the primary screen saves the cleared rows into
+  scrollback. The default, `SaveToScrollback`, keeps the 0.1.0 behaviour;
+  `Discard` clears without pushing, as xterm and `vt100` do. `CSI 3 J`, the
+  alternate screen and normal scrolling are unchanged.
 
 ## [0.1.0] - 2026-09-12
 
@@ -51,6 +48,17 @@ First standalone release. Extracted from the [`jackin-project/jackin`](https://g
   resize, scrollback offset views, documented phantom pending-wrap
   `cursor_position()` (adapter clamps to `cols-1`).
 - `proptest` dev-dependency for the serialization round-trip property.
+- Live PTY sessions (`termpane::session`, Unix-only `pty` feature): spawns
+  `SpawnParams` into a PTY, pumps output through `DamageGrid` on a worker
+  thread, and routes emulator replies (DA/DSR/DECRQM answers) back to PTY
+  stdin automatically. Covers `TERM`/`COLORTERM` defaulting from
+  `VirtualTerminalProfile`, atomic PTY+grid resize, signals via the
+  transport, `poll_exit`/`wait_exit` with trailing-output drain,
+  `close_input` (EOF), graceful `finish` and forceful idempotent `close`
+  (all teardown bounded; `Drop` never hangs), plus `output_log` recording so
+  live state can be verified against byte replay via
+  `state_formatted`/`state_eq`. Hermetic conformance suite in
+  `tests/session.rs`.
 
 ### Clarified
 
