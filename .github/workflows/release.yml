@@ -9,11 +9,11 @@ name: Velnor Release
       plan:
         description: Approved release plan
         required: true
-        default: release-3a1ad8a5334f
+        default: release-f1c2dfde45bd
       source_sha:
         description: Approved source SHA
         required: true
-        default: 3a1ad8a5334f16b4dd5c49f2982dec95f4b4974b
+        default: f1c2dfde45bdbe91425af6bb17d80e606703baac
       version:
         description: Approved crate version
         required: true
@@ -46,7 +46,7 @@ jobs:
           fetch-depth: "0"
           path: release-source
           persist-credentials: "false"
-          ref: 3a1ad8a5334f16b4dd5c49f2982dec95f4b4974b
+          ref: f1c2dfde45bdbe91425af6bb17d80e606703baac
       - name: Setup Mise
         uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8
         with:
@@ -98,7 +98,7 @@ jobs:
       id-token: write
     needs:
       - release-preflight
-    if: github.repository == 'tailrocks/termpane' && github.event.inputs.plan == 'release-3a1ad8a5334f' && github.event.inputs.source_sha == '3a1ad8a5334f16b4dd5c49f2982dec95f4b4974b' && github.event.inputs.version == '0.1.1'
+    if: github.repository == 'tailrocks/termpane' && github.event.inputs.plan == 'release-f1c2dfde45bd' && github.event.inputs.source_sha == 'f1c2dfde45bdbe91425af6bb17d80e606703baac' && github.event.inputs.version == '0.1.1'
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -111,7 +111,7 @@ jobs:
           fetch-depth: "0"
           path: release-source
           persist-credentials: "true"
-          ref: 3a1ad8a5334f16b4dd5c49f2982dec95f4b4974b
+          ref: f1c2dfde45bdbe91425af6bb17d80e606703baac
       - name: Setup Mise
         uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8
         with:
@@ -136,7 +136,7 @@ jobs:
       id-token: none
     needs:
       - release-preflight
-    if: github.repository == 'tailrocks/termpane' && github.event.inputs.plan == 'release-3a1ad8a5334f' && github.event.inputs.source_sha == '3a1ad8a5334f16b4dd5c49f2982dec95f4b4974b' && github.event.inputs.version == '0.1.1'
+    if: github.repository == 'tailrocks/termpane' && github.event.inputs.plan == 'release-f1c2dfde45bd' && github.event.inputs.source_sha == 'f1c2dfde45bdbe91425af6bb17d80e606703baac' && github.event.inputs.version == '0.1.1'
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -149,7 +149,7 @@ jobs:
           fetch-depth: "0"
           path: release-source
           persist-credentials: "true"
-          ref: 3a1ad8a5334f16b4dd5c49f2982dec95f4b4974b
+          ref: f1c2dfde45bdbe91425af6bb17d80e606703baac
       - name: Setup Mise
         uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8
         with:

@@ -30,4 +30,4 @@ tag_name = "{{ package }}-v{{ version }}"
 [stacks.rust.release.bootstrap]
 package = "termpane"
 version = "0.1.1"
-source_sha = "3a1ad8a5334f16b4dd5c49f2982dec95f4b4974b"
+source_sha = "f1c2dfde45bdbe91425af6bb17d80e606703baac"
