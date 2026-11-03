@@ -23,7 +23,9 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use termpane::{Cell, Color, DamageGrid, MouseProtocolEncoding, MouseProtocolMode};
+use termpane::{
+    Cell, Color, DamageGrid, EraseDisplayPolicy, MouseProtocolEncoding, MouseProtocolMode,
+};
 
 // ---------------------------------------------------------------------------
 // Neutral color type for snapshots
@@ -277,18 +279,44 @@ fn snapshot_damagegrid(grid: &DamageGrid) -> ScreenSnapshot {
 /// snapshots must match, proving parser carry state is deterministic across PTY
 /// read boundaries.
 fn run_conformance(rows: u16, cols: u16, bytes: &[u8], label: &str) {
-    let mut one_shot = DamageGrid::new(rows, cols, 10_000);
-    let mut split = DamageGrid::new(rows, cols, 10_000);
+    let mut saved_one_shot = None;
+    for policy in [
+        EraseDisplayPolicy::SaveToScrollback,
+        EraseDisplayPolicy::Discard,
+    ] {
+        let label = format!("{label} [{policy:?}]");
+        let mut one_shot = DamageGrid::new(rows, cols, 10_000);
+        let mut split = DamageGrid::new(rows, cols, 10_000);
+        one_shot.set_erase_display_policy(policy);
+        split.set_erase_display_policy(policy);
 
-    one_shot.process(bytes);
-    for byte in bytes {
-        split.process(std::slice::from_ref(byte));
+        one_shot.process(bytes);
+        for byte in bytes {
+            split.process(std::slice::from_ref(byte));
+        }
+
+        let one_shot_snap = snapshot_damagegrid(&one_shot);
+        let split_snap = snapshot_damagegrid(&split);
+        assert_snapshot_invariants(&one_shot_snap, &label);
+        one_shot_snap.assert_eq(&split_snap, &label);
+
+        // The policy only decides what a clear pushes to scrollback: screen,
+        // cursor and modes are identical, and Discard never keeps more rows.
+        match saved_one_shot.take() {
+            None => saved_one_shot = Some(one_shot_snap),
+            Some(saved) => {
+                assert!(
+                    one_shot_snap.scrollback_len <= saved.scrollback_len,
+                    "{label}: Discard kept more scrollback than SaveToScrollback"
+                );
+                let rebased = ScreenSnapshot {
+                    scrollback_len: saved.scrollback_len,
+                    ..one_shot_snap
+                };
+                saved.assert_eq(&rebased, &label);
+            }
+        }
     }
-
-    let one_shot_snap = snapshot_damagegrid(&one_shot);
-    let split_snap = snapshot_damagegrid(&split);
-    assert_snapshot_invariants(&one_shot_snap, label);
-    one_shot_snap.assert_eq(&split_snap, label);
 }
 
 fn assert_snapshot_invariants(snapshot: &ScreenSnapshot, label: &str) {

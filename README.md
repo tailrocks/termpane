@@ -19,7 +19,7 @@ program bytes
 - **`DamageGrid` cell model**: cursor, modes, styles, alternate screen, scrollback, and dirty-row damage recorded at mutation time — no snapshot diffing to discover what changed.
 - **Typed cell attributes**: bold/italic/underline/blink/conceal/overline family, underline style *and* underline color, and `Color` as `Default` / `Idx` / `Rgb`.
 - **Unicode-correct cells**: grapheme clustering (combining marks, variation selectors, ZWJ join the previous cell) and wide-cell handling with orphaned-continuation blanking.
-- **Scrollback**: primary/alternate screens, preserve-on-clear retention with exact dedupe, and clamped offset views (`scrollback_view`, `scrollback_rows_at_offset`).
+- **Scrollback**: primary/alternate screens, preserve-on-clear retention with exact dedupe (`EraseDisplayPolicy::Discard` turns it off for xterm-style clears), and clamped offset views (`scrollback_view`, `scrollback_rows_at_offset`).
 - **OSC 8 hyperlinks** as cell metadata, with a policy hook for filtering unsafe URIs.
 - **Terminal replies a real program expects**: DECRQM, DA, and DSR are answered from grid state; OSC 10/11 default-color queries are answered with configurable reported colors.
 - **Snapshots + damage tracking**: `GridSnapshot` (owned, with `to_text()`), borrowed `GridView`, and `GridPatch` dirty-span dumps.

@@ -102,6 +102,24 @@ pub enum MouseProtocolEncoding {
     Urxvt,
 }
 
+/// What an erase-display clear does with the rows it blanks on the primary
+/// screen. Set with [`DamageGrid::set_erase_display_policy`].
+///
+/// The policy covers the two full-screen clear shapes: `CSI 2 J` (ED2) and
+/// `CSI J` / `CSI 0 J` (ED0) with the cursor at home. It never changes the
+/// visible result of the clear, the alternate screen (which never feeds
+/// scrollback), or `CSI 3 J` (ED3), which always empties scrollback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EraseDisplayPolicy {
+    /// Push the non-blank visible rows into scrollback before blanking them,
+    /// with exact-block dedupe. The behaviour of termpane 0.1.0.
+    #[default]
+    SaveToScrollback,
+    /// Blank the visible rows and push nothing, as xterm and `vt100` do.
+    /// Programs that repaint with `CSI 2 J` then leave no history behind.
+    Discard,
+}
+
 /// The Phase 2 v0 terminal model.
 ///
 /// Call `process(bytes)` to feed raw PTY output.  The grid records which
@@ -169,6 +187,8 @@ pub struct DamageGrid {
     last_print: Option<(u16, u16)>,
     /// The exact rows the last preserve pushed, for byte-equality dedupe.
     last_preserved_block: Option<Vec<Vec<Cell>>>,
+    /// Whether ED2 / ED0-at-home saves the cleared rows into scrollback.
+    erase_display_policy: EraseDisplayPolicy,
     /// Active OSC 8 token while writing cells.
     active_hyperlink_token: u32,
     /// OSC 8 (id, uri) → internal token mapping.
@@ -227,6 +247,7 @@ impl std::fmt::Debug for DamageGrid {
             .field("scrollback_len", &self.scrollback.len())
             .field("scrollback_limit", &self.scrollback_limit)
             .field("scrollback_offset", &self.scrollback_offset)
+            .field("erase_display_policy", &self.erase_display_policy)
             .field("cursor_row", &self.cursor_row)
             .field("cursor_col", &self.cursor_col)
             .field("hide_cursor", &(self.mode_flags & HIDE_CURSOR != 0))
@@ -567,6 +588,7 @@ impl DamageGrid {
             text_cursor_enable: None,
             last_print: None,
             last_preserved_block: None,
+            erase_display_policy: EraseDisplayPolicy::default(),
             active_hyperlink_token: 0,
             osc8_id_to_token: HashMap::new(),
             hyperlink_targets: HashMap::new(),
@@ -939,6 +961,20 @@ impl DamageGrid {
     /// Number of scrollback rows filled.
     pub fn scrollback_len(&self) -> usize {
         self.scrollback.len()
+    }
+
+    /// Choose whether a full-screen erase saves the cleared rows into
+    /// scrollback. See [`EraseDisplayPolicy`]. Takes effect on the next clear;
+    /// rows already saved stay. The policy is configuration: `RIS` and resize
+    /// keep it, and it is not part of the replayed state.
+    pub fn set_erase_display_policy(&mut self, policy: EraseDisplayPolicy) {
+        self.erase_display_policy = policy;
+    }
+
+    /// The current [`EraseDisplayPolicy`]; [`EraseDisplayPolicy::SaveToScrollback`]
+    /// until set.
+    pub fn erase_display_policy(&self) -> EraseDisplayPolicy {
+        self.erase_display_policy
     }
 
     /// Clear the scrollback buffer. Used by capsule's `clear_scrollback`.
@@ -1483,9 +1519,13 @@ impl DamageGrid {
     /// non-blank span (first non-blank row through last non-blank row) is
     /// kept, matching how a shell or inline agent TUI redraws over its own
     /// transcript. No-op on the alternate screen — full-screen apps own
-    /// their display and do not contribute scrollback.
+    /// their display and do not contribute scrollback — and under
+    /// [`EraseDisplayPolicy::Discard`].
     fn preserve_visible_rows_to_scrollback(&mut self) {
-        if (self.mode_flags & ALT_SCREEN != 0) || self.scrollback_limit == 0 {
+        if self.erase_display_policy == EraseDisplayPolicy::Discard
+            || (self.mode_flags & ALT_SCREEN != 0)
+            || self.scrollback_limit == 0
+        {
             return;
         }
         // Retention decision (capsule rendering plan §3.7, candidate (b)):
