@@ -7,8 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** an OSC 8 hyperlink is shared by every cell written under it.
+  `Cell::hyperlink` is now `Option<Arc<Hyperlink>>`, `SnapCell` carries the
+  same `Option<Arc<Hyperlink>>` in `hyperlink` in place of `hyperlink_id` and
+  `hyperlink_uri`, and `Cell::hyperlink_id` is removed.
+  `DamageGrid::hyperlink_target_at_content_row` reads the cell's own link, so a
+  link no longer disappears when many other links have been written. A switch
+  to or from the alternate screen ends the open link, as it already did for hover.
+
 ### Fixed
 
+- `CSI Ps L`, `M`, `S` and `T` with a huge count (`CSI 65535 L`) ran one pass
+  per unit of the count, so eight bytes held a pane for about a tenth of a
+  second in a debug build. The count is now clamped to the rows from the cursor to the bottom
+  margin (`L`, `M`) or to the scroll region height (`S`, `T`), as xterm does,
+  and the recorded `ScrollOp` carries the clamped count. A scroll in a partial
+  region (DECSTBM) now moves each row once instead of cloning every row of the
+  region per scrolled line.
+- Each cell used to hold its own copy of an OSC 8 hyperlink, so one 140 KB URI
+  cost about 144 KB per printed byte. A cell now holds a pointer to one shared
+  link. A link whose URI is longer than 8 KiB or whose `id=` is longer than 256
+  bytes is refused: the text still prints, without a link, and any link that was
+  open ends.
 - A cell now holds at most 16 characters after its base (combining marks,
   variation selectors, joiners, and the characters a joiner pulls in). Output
   that never stops sending them grew one cell, and the cost of every join, without

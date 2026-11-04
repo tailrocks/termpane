@@ -56,3 +56,47 @@ fn same_size_resize_allocates_zero_after_warmup() {
     dhat::assert_eq!(after.total_blocks - before.total_blocks, 0);
     dhat::assert_eq!(after.total_bytes - before.total_bytes, 0);
 }
+
+#[test]
+fn huge_csi_counts_allocate_at_most_one_row_per_region_row() {
+    const SEQUENCES: [&[u8]; 4] = [
+        b"\x1b[65535L",
+        b"\x1b[65535M",
+        b"\x1b[65535S",
+        b"\x1b[65535T",
+    ];
+    const REGION_ROWS: u64 = 31;
+    let mut grid = DamageGrid::new(60, 200, 1_000);
+    grid.process(b"\x1b[10;40r\x1b[12;1H");
+    for sequence in SEQUENCES {
+        grid.process(sequence);
+        grid.clear_scroll_ops();
+    }
+
+    let _profiler = dhat::Profiler::builder().testing().build();
+    let before = dhat::HeapStats::get();
+
+    for sequence in SEQUENCES {
+        grid.process(sequence);
+        grid.clear_scroll_ops();
+    }
+
+    let after = dhat::HeapStats::get();
+    dhat::assert!(after.total_blocks - before.total_blocks <= 4 * REGION_ROWS);
+}
+
+#[test]
+fn printing_under_a_long_link_allocates_nothing_per_cell() {
+    let mut grid = DamageGrid::new(24, 80, 0);
+    let open = format!("\x1b]8;id=a;http://x/{}\x1b\\", "A".repeat(8_000));
+    let text = "x".repeat(24 * 80);
+    grid.process(open.as_bytes());
+
+    let _profiler = dhat::Profiler::builder().testing().build();
+    let before = dhat::HeapStats::get();
+
+    grid.process(text.as_bytes());
+
+    let after = dhat::HeapStats::get();
+    dhat::assert!(after.total_bytes - before.total_bytes <= 64 * 1024);
+}
