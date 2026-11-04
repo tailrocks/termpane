@@ -7,15 +7,18 @@ manifest contains placeholder artifact hashes: it is not an official Velnor
 release manifest or publication authority. The draft configuration selects
 no additional publication features.
 
-The `release-rehearsal.yml` workflow is hand-owned and explicitly preserved
-by `.velnor/config.toml`. Its protected job runs only on a manual dispatch
-from `main` in the existing `release` environment. It requests no GitHub
-permissions or real registry/OIDC credential. Before approving the job, review
-the exact candidate PR head, all its reviews, comments and replies, and its
-required checks. The job independently checks the same-repository PR head,
-main rules and CI provenance before checkout and again before candidate code
-runs. It uses unauthenticated GitHub reads and fails closed on incomplete or
-ambiguous evidence. Do not bypass the environment reviewer.
+The generated `release-rehearsal.yml` workflow dispatches the consumer-owned
+`rehearse.sh` from reviewed `main` without publication credentials. The wrapper
+checks the public same-repository PR head, main rules, and CI provenance before
+checkout, before candidate execution, and again after the rehearsal. It fails
+closed on incomplete or ambiguous public evidence.
+
+An authenticated, independent verifier must review all PR reviews, comments,
+replies and thread-resolution state at the exact candidate head, and establish
+that all required checks and reviews pass. This is mandatory before using the
+rehearsal as qualification: the credential-free wrapper cannot verify thread
+resolution or decide whether every comment is addressed. Do not bypass the
+environment reviewer.
 
 The native coordinator fixture uses source commit
 `f1c2dfde45bdbe91425af6bb17d80e606703baac`, the draft intent's package,
