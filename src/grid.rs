@@ -268,6 +268,14 @@ impl std::fmt::Debug for DamageGrid {
 /// 64 is well past any real terminal program's nested keymap-mode depth.
 const KITTY_KB_STACK_CAP: usize = 64;
 
+/// The most characters that may join the base of one cell: combining marks,
+/// variation selectors, joiners, and the characters a joiner pulls in. The
+/// longest emoji sequence in Unicode is 9 characters after its first, and no
+/// script stacks more than a handful of marks, so 16 leaves them all intact
+/// while a program that never stops sending joiners cannot grow one cell
+/// (memory) or make each join copy a longer cluster (time).
+const MAX_CLUSTER_JOINERS: usize = 16;
+
 /// DEC mode number for a mouse protocol mode (1000/1002/1003; 0 = None).
 /// The alias variants normalize to the mode they alias.
 pub(crate) fn mouse_mode_number(mode: MouseProtocolMode) -> u16 {
@@ -1250,12 +1258,14 @@ impl DamageGrid {
             // A wide glyph that cannot fit is suppressed outright — no write,
             // no shift of the previous cell (xterm/vt100-fork semantics). The
             // pending column is kept for width-0 combining marks (handled by
-            // `append_to_previous_cluster` above).
-            self.mode_flags &= !PENDING_WRAP;
+            // `append_to_previous_cluster` above), and with it the deferred
+            // wrap: a cursor parked at the phantom column without it would
+            // drop every later printable.
             let col = self.cursor_col.min(self.cols.saturating_sub(1));
             if width > self.cols.saturating_sub(col) {
                 return;
             }
+            self.mode_flags &= !PENDING_WRAP;
             self.cursor_col = col;
         }
         if self.cursor_row >= self.rows || self.cursor_col >= self.cols {
@@ -1387,6 +1397,11 @@ impl DamageGrid {
             if cell.contents.is_empty() && zero_width {
                 // Nothing to join — drop the orphan mark.
                 return true;
+            }
+            if cell.contents.chars().nth(MAX_CLUSTER_JOINERS).is_some() {
+                // The cluster is full: drop a mark, and let a printable that
+                // followed the joiner start the next cell.
+                return zero_width;
             }
             (
                 cell_width(cell),
