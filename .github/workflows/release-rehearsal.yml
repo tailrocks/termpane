@@ -14,7 +14,6 @@ on:
         required: true
         type: string
 permissions: {}
-cache-mode: none
 concurrency:
   group: release-rehearsal-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
