@@ -59,6 +59,18 @@ cp "$RUNNER_TEMP/intent.toml" "$inputs/intent.toml"
 cp -a "$RUNNER_TEMP/host-cargo/." "$cargo_home/"
 mkdir -p "$cargo_home/registry"
 cp -an "$RUNNER_TEMP/cargo-cache/registry/." "$cargo_home/registry/"
+python3 "$control/prepare_offline_registry.py" "$cargo_home" "$RUNNER_TEMP/source" "$inputs/baseline.crate" "$RUNNER_TEMP/native-registry"
+
+# Run the candidate's production Git acquisition before the offline coordinator
+# starts and before the approved source or its build scripts can execute.
+docker run --platform linux/amd64 --rm \
+  -v "$RUNNER_TEMP/candidate:/src:ro" -v "$cargo_home:/cargo" -v "$target:/target" -v "$tools:/tools:ro" \
+  -v "$runner/coordinate:/runner/coordinate" -w /src \
+  -e CARGO_HOME=/cargo -e CARGO_TARGET_DIR=/target -e RUSTUP_TOOLCHAIN=1.99.1-x86_64-unknown-linux-gnu -e RUSTUP_AUTO_INSTALL=0 \
+  -e VELNOR_NATIVE_ACQUIRE_GIT=/runner/coordinate \
+  -e PATH=/tools:/usr/local/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+  "$image" cargo nextest run --offline --locked -p velnor-actions-orchestrator --lib \
+  -E 'test(generated_candidate_receipt_rejects_unprotected_environment)' --no-tests fail
 
 docker run --platform linux/amd64 --rm --network none \
   --add-host fixture.actions.githubusercontent.com:127.0.0.1 \
@@ -67,10 +79,12 @@ docker run --platform linux/amd64 --rm --network none \
   -v "$RUNNER_TEMP/candidate/crates/velnor-actions-orchestrator/tests/fixtures/native_candidate:/fixture:ro" \
   -v "$assets:/assets:ro" -v "$workspace:/workspace" -v "$runner:/runner" \
   -v "$rustup_home:/runner/coordinate/velnor/rustup" -v "$RUNNER_TEMP/source:/input-source:ro" -v "$inputs:/inputs:ro" \
+  -v "$RUNNER_TEMP/native-registry:/fixture-registry:ro" \
   -e CARGO_HOME=/cargo -e CARGO_TARGET_DIR=/target -e RUSTUP_TOOLCHAIN=1.99.1-x86_64-unknown-linux-gnu -e RUSTUP_AUTO_INSTALL=0 \
   -e VELNOR_FIXTURE_SUPPLIED_INTENT=/inputs/intent.toml -e VELNOR_FIXTURE_SUPPLIED_SOURCE=/input-source \
   -e VELNOR_FIXTURE_BASELINE_VERSION=0.1.0 -e VELNOR_FIXTURE_BASELINE_ARCHIVE=/inputs/baseline.crate \
   -e VELNOR_FIXTURE_BASELINE_INDEX=/inputs/index.jsonl -e VELNOR_FIXTURE_DEPENDENCY_SNAPSHOTS=/inputs/deps \
+  -e VELNOR_NATIVE_REGISTRY_SNAPSHOT=/fixture-registry \
   -e PATH=/tools:/usr/local/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
   "$image" python3 /fixture/drive.py coordinate
 
