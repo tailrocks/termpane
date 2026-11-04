@@ -17,15 +17,21 @@ main rules and CI provenance before checkout and again before candidate code
 runs. It uses unauthenticated GitHub reads and fails closed on incomplete or
 ambiguous evidence. Do not bypass the environment reviewer.
 
-The fixture checks out source commit
-`f1c2dfde45bdbe91425af6bb17d80e606703baac` and executes the pinned Linux
-release-plz in a Docker container with networking disabled. A Cargo wrapper
-intercepts publication and performs real offline packaging. Local fake services
-and fake OIDC credentials are used. The fixture compares every packaged file with the approved Git commit, including
-resolved tracked symlinks, and compares the normalized Cargo manifest with a
-fresh package built from that commit. It checks `EraseDisplayPolicy` and the
-embedded source SHA. It does not exercise the native coordinator or prove a real
-GitHub OIDC exchange, registry upload, or published artifact identity.
+The native coordinator fixture uses source commit
+`f1c2dfde45bdbe91425af6bb17d80e606703baac`, the draft intent's package,
+version and features, and the pinned Linux release-plz and Rust tooling. It
+substitutes the historical, signed 0.1.73 generator manifest only for its
+offline attestation fixture. The existing Velnor Rust verifier checks the
+installed toolchain against the pinned channel and component hashes immediately
+after installation, before the fixture replaces Cargo with its publication
+wrapper. The coordinator runs in Docker with networking disabled, fake
+GitHub, registry and OIDC endpoints, and an intercepted Cargo publication.
+The workflow compares every packaged file with the approved Git commit,
+including resolved tracked symlinks. It also compares generated Cargo metadata
+with a fresh package and checks `EraseDisplayPolicy` and the embedded source
+SHA. This rehearsal does not prove a real GitHub OIDC exchange, registry
+upload, or published artifact identity. The test-only dispatcher does not
+remove the production guards.
 
 After the authorized Velnor release exists, regenerate and review the actual
 termpane release intent and workflow with the published generator. Compare the

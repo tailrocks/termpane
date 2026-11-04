@@ -15,7 +15,7 @@ PREFIX = "termpane-0.1.1/"
 
 
 def git(source, *args):
-    return subprocess.check_output(["git", "-C", str(source), *args])
+    return subprocess.check_output(["git", "-c", f"safe.directory={source}", "-C", str(source), *args])
 
 
 def archive_files(path):
