@@ -387,11 +387,13 @@ impl RowStore {
     }
 
     fn remove(&mut self, index: usize) -> Option<Vec<Cell>> {
-        let row = self.rows.remove(index);
-        if row.is_some() {
-            let _ = self.wraps.remove(index);
-        }
-        row
+        self.remove_with_wrap(index).map(|(row, _wrap)| row)
+    }
+
+    fn remove_with_wrap(&mut self, index: usize) -> Option<(Vec<Cell>, RowWrap)> {
+        let row = self.rows.remove(index)?;
+        let wrap = self.wraps.remove(index).unwrap_or_default();
+        Some((row, wrap))
     }
 
     fn push_back(&mut self, row: Vec<Cell>) {
@@ -1450,17 +1452,13 @@ impl DamageGrid {
     }
 
     /// Scroll the active scroll region up by `n` rows, pushing content to scrollback.
-    #[expect(
-        clippy::excessive_nesting,
-        reason = "Scroll-region scrolling distinguishes full-scroll vs partial-scroll \
-                  branches and within each branch handles scrollback recycling, \
-                  row eviction, and the shift-within-range path. The nested control \
-                  flow is intrinsic to the scroll-region semantics — extracting into \
-                  sub-helpers would re-pass mutable grid + scrollback borrows across \
-                  fn boundaries and obscure the per-region branching."
-    )]
+    ///
+    /// `n` is clamped to the region height, as xterm does, and each row moves
+    /// once: the top row leaves the region and a blank row enters at the
+    /// bottom, so the work is linear in the rows scrolled.
     fn scroll_up(&mut self, n: u16, inserted_wrap: RowWrap) {
         self.mode_flags |= MUTATED_SINCE_PRESERVE;
+        let n = n.min(self.scroll_bottom - self.scroll_top + 1);
         let top = self.scroll_top as usize;
         let bottom = self.scroll_bottom as usize;
         let cols = self.cols;
@@ -1476,53 +1474,25 @@ impl DamageGrid {
             if bottom >= grid_len || top >= bottom {
                 continue;
             }
-            // top == 0 with no bottom margin is the common case (plain line feed
-            // with no DECSTBM region); scrollback only collects primary rows.
             let to_scrollback =
                 (self.mode_flags & ALT_SCREEN == 0) && top == 0 && self.scrollback_limit > 0;
             // Scroll-introduced blank lines use the DEFAULT background, not the
-            // current one — xterm applies back-colour-erase to the explicit
+            // current one: xterm applies back-colour-erase to the explicit
             // erase ops (EL/ED/ECH), never to scroll/insert-line.
-            if top == 0 && bottom + 1 == grid_len {
-                // Full-region scroll: rotate the ring instead of cloning every
-                // visible row. The evicted top row moves straight into
-                // scrollback (no intermediate clone) or is recycled; the new
-                // bottom row is drawn from the arena recycle pool.
-                let blank = self.active_grid().arena.blank_row(cols);
-                let evicted = self.active_grid().pop_front_with_wrap();
-                if let Some((row, wrap)) = evicted {
-                    if to_scrollback {
-                        if self.scrollback.len() >= self.scrollback_limit {
-                            self.scrollback.recycle_front();
-                        }
-                        self.scrollback.push_back_with_wrap(row, wrap);
-                    } else {
-                        self.active_grid().arena.recycle(row);
-                    }
-                }
-                self.active_grid().push_back_with_wrap(blank, inserted_wrap);
-            } else {
-                // Partial scroll region (DECSTBM margins) or a non-zero top:
-                // the ring cannot rotate without disturbing rows outside the
-                // region, so shift within range.
+            let blank = self.active_grid().arena.blank_row(cols);
+            let evicted = self.active_grid().remove_with_wrap(top);
+            if let Some((row, wrap)) = evicted {
                 if to_scrollback {
-                    let row = self.primary[0].clone();
-                    let wrap = self.primary.wrap(0).unwrap_or_default();
                     if self.scrollback.len() >= self.scrollback_limit {
                         self.scrollback.recycle_front();
                     }
                     self.scrollback.push_back_with_wrap(row, wrap);
+                } else {
+                    self.active_grid().arena.recycle(row);
                 }
-                let grid = self.active_grid();
-                for r in top..bottom {
-                    grid[r] = grid[r + 1].clone();
-                    if let Some(next_wrap) = grid.wrap(r + 1) {
-                        grid.wraps[r] = next_wrap;
-                    }
-                }
-                grid[bottom] = blank_row(cols);
-                grid.wraps[bottom] = inserted_wrap;
             }
+            self.active_grid()
+                .insert_with_wrap(bottom, blank, inserted_wrap);
         }
         for r in top as u16..=bottom as u16 {
             self.dirty.mark_row(r);
