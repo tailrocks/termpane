@@ -21,9 +21,10 @@ The fixture checks out source commit
 `f1c2dfde45bdbe91425af6bb17d80e606703baac` and executes the pinned Linux
 release-plz in a Docker container with networking disabled. A Cargo wrapper
 intercepts publication and performs real offline packaging. Local fake services
-and fake OIDC credentials are used. The fixture checks the source commit,
-`src/lib.rs`, `src/grid.rs` and `EraseDisplayPolicy`, but does not compare the
-entire crate. It does not exercise the native coordinator or prove a real
+and fake OIDC credentials are used. The fixture compares every packaged file with the approved Git commit, including
+resolved tracked symlinks, and compares the normalized Cargo manifest with a
+fresh package built from that commit. It checks `EraseDisplayPolicy` and the
+embedded source SHA. It does not exercise the native coordinator or prove a real
 GitHub OIDC exchange, registry upload, or published artifact identity.
 
 After the authorized Velnor release exists, regenerate and review the actual

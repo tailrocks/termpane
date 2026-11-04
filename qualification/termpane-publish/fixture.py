@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Alexey Zhokhov
 # SPDX-License-Identifier: Apache-2.0
 
-import http.server,json,os,pathlib,shlex,ssl,subprocess,tempfile,threading,tarfile,tomllib
+import http.server,json,os,pathlib,shlex,ssl,subprocess,sys,tempfile,threading,tarfile,tomllib
 intent=tomllib.loads(pathlib.Path('/test/intent.toml').read_text())
 upload=tomllib.loads(pathlib.Path('/test/upload.toml').read_text())
 assert intent['repository'] == 'tailrocks/termpane'
@@ -80,6 +80,7 @@ for case in ['recovery']:
    grid=bundle.extractfile('termpane-0.1.1/src/grid.rs').read()
    assert grid == (root/'src/grid.rs').read_bytes() and b'enum EraseDisplayPolicy' in grid
   assert source == (root/'src/lib.rs').read_bytes() and info['git']['sha1'] == approved, 'packaged source mismatch'
+  subprocess.run([sys.executable, '/verify_archive.py', str(archive), str(root)], check=True, env=dict(os.environ, CARGO_HOME='/cargo-cache'))
  assert (case=='bootstrap') == (not any(host == 'fixture.actions.githubusercontent.com' for method,host,path in events)) or case=='existing-tag'
  assert not pathlib.Path('/cargo-cache/credentials.toml').exists()
  if os.environ.get('TEST_OIDC_SUCCESS') == '1' and case not in ('bootstrap','existing-tag'):
