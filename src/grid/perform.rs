@@ -185,7 +185,6 @@ impl vte::Perform for DamageGrid {
             }
             // Insert Lines. Inserted blanks use the DEFAULT background (not BCE).
             'L' => {
-                let n = p0.max(1) as usize;
                 let row = self.cursor_row as usize;
                 let top = self.scroll_top as usize;
                 let bottom = self.scroll_bottom as usize;
@@ -194,10 +193,12 @@ impl vte::Perform for DamageGrid {
                     // xterm: IL/DL are no-ops outside the vertical scroll margins.
                     return;
                 }
+                let rows = p0.max(1).min(self.scroll_bottom - self.cursor_row + 1);
+                let n = rows as usize;
                 self.scroll_ops.push(ScrollOp::Down {
                     top: self.cursor_row,
                     bottom: self.scroll_bottom,
-                    rows: p0.max(1),
+                    rows,
                 });
                 let grid = self.active_grid();
                 for _ in 0..n {
@@ -210,7 +211,6 @@ impl vte::Perform for DamageGrid {
             }
             // Delete Lines. Inserted blanks use the DEFAULT background (not BCE).
             'M' => {
-                let n = p0.max(1) as usize;
                 let row = self.cursor_row as usize;
                 let top = self.scroll_top as usize;
                 let bottom = self.scroll_bottom as usize;
@@ -219,10 +219,12 @@ impl vte::Perform for DamageGrid {
                     // xterm: IL/DL are no-ops outside the vertical scroll margins.
                     return;
                 }
+                let rows = p0.max(1).min(self.scroll_bottom - self.cursor_row + 1);
+                let n = rows as usize;
                 self.scroll_ops.push(ScrollOp::Up {
                     top: self.cursor_row,
                     bottom: self.scroll_bottom,
-                    rows: p0.max(1),
+                    rows,
                 });
                 let grid = self.active_grid();
                 for _ in 0..n {
@@ -261,7 +263,8 @@ impl vte::Perform for DamageGrid {
             }
             // Scroll Down. Inserted blanks use the DEFAULT background (not BCE).
             'T' => {
-                let n = p0.max(1) as usize;
+                let rows = p0.max(1).min(self.scroll_bottom - self.scroll_top + 1);
+                let n = rows as usize;
                 let top = self.scroll_top as usize;
                 let bottom = self.scroll_bottom as usize;
                 let cols = self.cols;
@@ -270,7 +273,7 @@ impl vte::Perform for DamageGrid {
                 self.scroll_ops.push(ScrollOp::Down {
                     top: self.scroll_top,
                     bottom: self.scroll_bottom,
-                    rows: p0.max(1),
+                    rows,
                 });
                 let grid = self.active_grid();
                 for _ in 0..n {
