@@ -207,6 +207,7 @@ pub struct DamageGrid {
     // ── Current SGR attributes (applied to newly written cells) ───────────────
     current_attrs: Attrs,
     active_hyperlink: Option<Arc<Hyperlink>>,
+    recent_hyperlinks: VecDeque<Arc<Hyperlink>>,
 
     // ── Scroll region ─────────────────────────────────────────────────────────
     scroll_top: u16,    // 0-based, inclusive
@@ -298,6 +299,11 @@ const OSC8_URI_MAX: usize = 8 * 1024;
 /// Longest OSC 8 `id=` value the grid keeps, in bytes. The specification
 /// recommends ids of at most 250 bytes.
 const OSC8_ID_MAX: usize = 256;
+
+/// Most recently opened OSC 8 links the grid remembers, so a producer that
+/// reopens the same link before every glyph or span makes its cells share one
+/// copy. Bounds the memory the table itself holds to this many links.
+const OSC8_RECENT_MAX: usize = 8;
 
 /// Ring-backed row storage.
 ///
@@ -599,6 +605,7 @@ impl DamageGrid {
             reported_bg,
             current_attrs: Attrs::default(),
             active_hyperlink: None,
+            recent_hyperlinks: VecDeque::with_capacity(OSC8_RECENT_MAX),
             scroll_top: 0,
             scroll_bottom: rows.saturating_sub(1),
             scroll_ops: Vec::new(),
@@ -1788,15 +1795,30 @@ impl DamageGrid {
                     .filter(|bytes| bytes.len() <= OSC8_URI_MAX)
                     .and_then(|bytes| std::str::from_utf8(bytes).ok())
                     .filter(|uri| !uri.is_empty());
-                self.active_hyperlink = id.zip(uri).map(|(id, uri)| {
-                    Arc::new(Hyperlink {
-                        id: id.to_owned(),
-                        uri: uri.to_owned(),
-                    })
-                });
+                self.active_hyperlink = id.zip(uri).map(|(id, uri)| self.intern_hyperlink(id, uri));
             }
             _ => {}
         }
+    }
+
+    fn intern_hyperlink(&mut self, id: &str, uri: &str) -> Arc<Hyperlink> {
+        if let Some(position) = self
+            .recent_hyperlinks
+            .iter()
+            .position(|link| link.id == id && link.uri == uri)
+        {
+            self.recent_hyperlinks.make_contiguous()[..=position].rotate_right(1);
+            return Arc::clone(&self.recent_hyperlinks[0]);
+        }
+        let link = Arc::new(Hyperlink {
+            id: id.to_owned(),
+            uri: uri.to_owned(),
+        });
+        if self.recent_hyperlinks.len() == OSC8_RECENT_MAX {
+            self.recent_hyperlinks.pop_back();
+        }
+        self.recent_hyperlinks.push_front(Arc::clone(&link));
+        link
     }
 }
 
