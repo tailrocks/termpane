@@ -912,20 +912,7 @@ fn borrowed_scrollback_view_matches_owned_dump() {
             );
             assert_eq!(borrowed_cell.conceal(), owned_cell.attributes.conceal);
             assert_eq!(borrowed_cell.overline(), owned_cell.attributes.overline);
-            assert_eq!(
-                borrowed_cell
-                    .hyperlink
-                    .as_ref()
-                    .map(|link| link.id.as_str()),
-                owned_cell.hyperlink_id.as_deref()
-            );
-            assert_eq!(
-                borrowed_cell
-                    .hyperlink
-                    .as_ref()
-                    .map(|link| link.uri.as_str()),
-                owned_cell.hyperlink_uri.as_deref()
-            );
+            assert_eq!(borrowed_cell.hyperlink, owned_cell.hyperlink);
         }
     }
 }
@@ -940,13 +927,15 @@ fn osc8_hyperlink_is_cell_metadata_not_passthrough() {
     let second = snap.cell(0, 1).expect("linked B");
     let third = snap.cell(0, 2).expect("plain C");
 
-    assert_eq!(first.hyperlink_id.as_deref(), Some("docs"));
-    assert_eq!(first.hyperlink_uri.as_deref(), Some("https://example.test"));
-    assert_eq!(
-        second.hyperlink_uri.as_deref(),
-        Some("https://example.test")
-    );
-    assert_eq!(third.hyperlink_uri, None);
+    let link = |cell: &crate::snapshot::SnapCell| {
+        cell.hyperlink
+            .as_ref()
+            .map(|link| (link.id.clone(), link.uri.clone()))
+    };
+    let docs = Some(("docs".to_owned(), "https://example.test".to_owned()));
+    assert_eq!(link(first), docs);
+    assert_eq!(link(second), docs);
+    assert_eq!(link(third), None);
     assert!(
         g.drain_passthrough().is_empty(),
         "OSC 8 should not be raw passthrough"
@@ -1372,27 +1361,13 @@ fn resize_same_size_and_width_only_do_not_grow_arena_pool() {
 }
 
 #[test]
-fn hyperlink_id_map_stays_bounded() {
+fn reset_modes_ends_the_active_hyperlink() {
     let mut grid = DamageGrid::new(4, 20, 100);
-    // Cap counts (id, uri) interning keys; unique pairs fill the map.
-    for i in 0..(OSC8_HYPERLINK_CAP * 2) {
-        let _ =
-            grid.alloc_hyperlink_token(&format!("id-{i}"), &format!("https://example.test/{i}"));
-    }
-    assert!(grid.osc8_id_to_token.len() <= OSC8_HYPERLINK_CAP);
-}
-
-#[test]
-fn reset_modes_clears_hyperlink_maps() {
-    let mut grid = DamageGrid::new(4, 20, 100);
-    let _ = grid.alloc_hyperlink_token("some-id", "https://example.test");
-    // also seed a target entry the way OSC 8 does
-    grid.hyperlink_targets
-        .insert(1, "https://example.test".to_owned());
-    assert!(!grid.osc8_id_to_token.is_empty());
+    grid.process(b"\x1b]8;id=a;https://example.test\x07A");
     grid.reset_modes();
-    assert!(grid.osc8_id_to_token.is_empty());
-    assert!(grid.hyperlink_targets.is_empty());
+    grid.process(b"B");
+    assert!(grid.cell(0, 0).is_some_and(|cell| cell.hyperlink.is_some()));
+    assert!(grid.cell(0, 1).is_some_and(|cell| cell.hyperlink.is_none()));
 }
 
 #[test]
@@ -1422,15 +1397,12 @@ fn osc8_empty_id_updates_do_not_repoint() {
 }
 
 #[test]
-fn osc8_same_id_same_uri_shares_token() {
+fn osc8_same_id_same_uri_links_both_cells() {
     let mut g = DamageGrid::new(2, 40, 100);
     g.process(b"\x1b]8;id=x;https://a\x07A\x1b]8;;\x07");
     g.process(b"\x1b]8;id=x;https://a\x07B\x1b]8;;\x07");
     assert_eq!(g.hyperlink_target_at_content_row(0, 0), Some("https://a"));
     assert_eq!(g.hyperlink_target_at_content_row(0, 1), Some("https://a"));
-    // One (id,uri) key → one token → one target entry.
-    assert_eq!(g.osc8_id_to_token.len(), 1);
-    assert_eq!(g.hyperlink_targets.len(), 1);
 }
 
 // ── v0.7.0 parity: DECAWM, DECSED/DECSEL, bell, ?12, 2026, DECRQM ───────────

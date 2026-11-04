@@ -28,13 +28,11 @@ pub fn set_cell_width(row: &mut [Cell], col: usize, width: u16, attrs: Attrs, co
             // was a wide lead, blank its now-orphaned continuation at `col + 2`.
             let orphan = row[col + 1].is_wide && col + 2 < cols && col + 2 < row.len();
             let hyperlink = row[col].hyperlink.clone();
-            let hyperlink_id = row[col].hyperlink_id;
             row[col + 1] = Cell {
                 contents: compact_str::CompactString::new(""),
                 is_wide: false,
                 is_wide_continuation: true,
                 attrs,
-                hyperlink_id,
                 hyperlink,
             };
             if orphan {

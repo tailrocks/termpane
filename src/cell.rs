@@ -9,6 +9,8 @@
 //! per-cell `String::to_string()` alloc storm in the focused-pane render path.
 //! The public `contents() -> &str` API is unchanged.
 
+use std::sync::Arc;
+
 use compact_str::CompactString;
 
 /// Color representation used by the owned terminal model.
@@ -80,6 +82,11 @@ pub enum UnderlineStyle {
 }
 
 /// OSC 8 hyperlink metadata attached to a cell span.
+///
+/// Every cell written under one OSC 8 sequence holds the same
+/// [`Arc<Hyperlink>`], so a link costs its bytes once however many cells it
+/// covers. The grid refuses a link whose URI is longer than 8 KiB or whose id
+/// is longer than 256 bytes.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Hyperlink {
     /// OSC 8 `id=` parameter, grouping discontiguous spans of one logical link.
@@ -108,14 +115,10 @@ pub struct Cell {
     pub is_wide: bool,
     /// True for the phantom continuation column of a wide character.
     pub is_wide_continuation: bool,
-    /// Hyperlink id for OSC 8 regions.
-    ///
-    /// `0` means no hyperlink for this cell.
-    pub hyperlink_id: u32,
     /// SGR attributes for this cell.
     pub attrs: Attrs,
-    /// Full OSC 8 hyperlink (id + uri), when present.
-    pub hyperlink: Option<Hyperlink>,
+    /// OSC 8 hyperlink (id + uri), shared by every cell written under it.
+    pub hyperlink: Option<Arc<Hyperlink>>,
 }
 
 impl Cell {

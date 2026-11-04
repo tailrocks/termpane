@@ -14,8 +14,7 @@ fn snap_cell_blank_detection() {
         attributes: SnapCellAttrs::default(),
         underline_style: UnderlineStyle::None,
         underline_color: Color::Default,
-        hyperlink_id: None,
-        hyperlink_uri: None,
+        hyperlink: None,
     };
     assert!(c.is_blank());
     assert!(!c.has_contents());
@@ -32,8 +31,7 @@ fn snap_cell_non_blank() {
         attributes: SnapCellAttrs::default(),
         underline_style: UnderlineStyle::None,
         underline_color: Color::Default,
-        hyperlink_id: None,
-        hyperlink_uri: None,
+        hyperlink: None,
     };
     assert!(!c.is_blank());
     assert!(c.has_contents());
