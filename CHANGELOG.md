@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A cell now holds at most 16 characters after its base (combining marks,
+  variation selectors, joiners, and the characters a joiner pulls in). Output
+  that never stops sending them grew one cell, and the cost of every join, without
+  bound. Marks past the limit are dropped; a printable that follows a joiner in
+  a full cluster starts the next cell. The longest emoji ZWJ sequence (10
+  characters) is unchanged.
+- `CSI ! p` (DECSTR) at the right margin, and a wide glyph suppressed by
+  `CSI ? 7 l`, no longer leave the cursor in the phantom column without a
+  deferred wrap, where the next printable was dropped and later marks joined
+  the last cell.
+
 ## [0.1.1] - 2026-11-03
 
 ### Added

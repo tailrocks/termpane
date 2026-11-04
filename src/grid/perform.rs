@@ -453,11 +453,10 @@ impl vte::Perform for DamageGrid {
                 self.current_attrs = Attrs::default();
                 self.scroll_top = 0;
                 self.scroll_bottom = self.rows.saturating_sub(1);
-                self.mode_flags &= !super::PENDING_WRAP;
+                self.clear_pending_wrap();
                 self.mode_flags &= !super::HIDE_CURSOR;
                 self.mode_flags &= !super::APPLICATION_CURSOR;
                 self.mode_flags &= !super::BRACKETED_PASTE;
-                self.last_print = None;
                 self.saved_cursor_row = self.cursor_row;
                 self.saved_cursor_col = self.cursor_col;
             }
