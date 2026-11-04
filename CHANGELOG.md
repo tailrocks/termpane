@@ -31,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   link. A link whose URI is longer than 8 KiB or whose `id=` is longer than 256
   bytes is refused: the text still prints, without a link, and any link that was
   open ends.
+- A program that reopened the same OSC 8 link before each glyph or span still
+  gave every cell its own copy. The grid now remembers its eight most recently
+  opened links and reuses the matching one, so those cells share one link too.
 - A cell now holds at most 16 characters after its base (combining marks,
   variation selectors, joiners, and the characters a joiner pulls in). Output
   that never stops sending them grew one cell, and the cost of every join, without

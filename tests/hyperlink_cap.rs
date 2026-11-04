@@ -7,7 +7,9 @@
 //! Every test feeds bytes through `DamageGrid::process` and reads cells back
 //! through the public API.
 
-use termpane::DamageGrid;
+use std::sync::Arc;
+
+use termpane::{DamageGrid, Hyperlink};
 
 const URI_MAX: usize = 8 * 1024;
 const ID_MAX: usize = 256;
@@ -119,4 +121,82 @@ fn a_cell_keeps_its_link_after_thousands_of_other_links() {
             "{n}"
         );
     }
+}
+
+type Link = Option<Arc<Hyperlink>>;
+
+fn link_of(grid: &DamageGrid, row: u16, col: u16) -> Link {
+    grid.cell(row, col).and_then(|cell| cell.hyperlink.clone())
+}
+
+fn same(a: &Link, b: &Link) -> bool {
+    matches!((a, b), (Some(a), Some(b)) if Arc::ptr_eq(a, b))
+}
+
+#[test]
+fn reopening_the_same_link_before_each_glyph_shares_one_link() {
+    let mut grid = DamageGrid::new(5, 80, 0);
+    let opening = open("a", &uri_of_length(URI_MAX));
+    for _ in 0..200 {
+        grid.process(&opening);
+        grid.process(b"x");
+    }
+    let first = link_of(&grid, 0, 0);
+    for n in 1..200_u16 {
+        assert!(
+            same(&first, &link_of(&grid, n / 80, n % 80)),
+            "cell {n} owns its own copy of the link"
+        );
+    }
+}
+
+#[test]
+fn reopening_the_same_link_after_closing_it_shares_one_link() {
+    let mut grid = DamageGrid::new(5, 80, 0);
+    let opening = open("a", &uri_of_length(URI_MAX));
+    for _ in 0..100 {
+        grid.process(&opening);
+        grid.process(b"x\x1b]8;;\x1b\\y");
+    }
+    let first = link_of(&grid, 0, 0);
+    for n in (0..200_u16).step_by(2) {
+        assert!(same(&first, &link_of(&grid, n / 80, n % 80)));
+        assert!(
+            grid.cell(n / 80, n % 80 + 1)
+                .is_some_and(|cell| cell.hyperlink.is_none())
+        );
+    }
+}
+
+#[test]
+fn alternating_between_two_links_shares_one_copy_of_each() {
+    let mut grid = DamageGrid::new(5, 80, 0);
+    let a = open("a", &uri_of_length(URI_MAX));
+    let b = open("b", &uri_of_length(URI_MAX - 1));
+    for _ in 0..100 {
+        grid.process(&a);
+        grid.process(b"x");
+        grid.process(&b);
+        grid.process(b"y");
+    }
+    let (first_a, first_b) = (link_of(&grid, 0, 0), link_of(&grid, 0, 1));
+    assert!(first_a.is_some() && !same(&first_a, &first_b));
+    for n in (2..200_u16).step_by(2) {
+        assert!(same(&first_a, &link_of(&grid, n / 80, n % 80)));
+        assert!(same(&first_b, &link_of(&grid, n / 80, n % 80 + 1)));
+    }
+}
+
+#[test]
+fn same_uri_under_another_id_is_a_different_link() {
+    let mut grid = DamageGrid::new(2, 20, 0);
+    grid.process(&open("a", "http://x/"));
+    grid.process(b"x");
+    grid.process(&open("b", "http://x/"));
+    grid.process(b"y");
+    assert!(!same(&link_of(&grid, 0, 0), &link_of(&grid, 0, 1)));
+    assert_eq!(
+        link_of(&grid, 0, 1).map(|link| link.id.clone()).as_deref(),
+        Some("b")
+    );
 }
