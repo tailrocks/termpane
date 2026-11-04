@@ -1,0 +1,107 @@
+# SPDX-FileCopyrightText: 2026 Alexey Zhokhov
+# SPDX-License-Identifier: Apache-2.0
+name: Release rehearsal
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      candidate_pr:
+        description: Reviewed Velnor pull request number
+        required: true
+        type: string
+      candidate_sha:
+        description: Reviewed Velnor pull request head SHA
+        required: true
+        type: string
+permissions: {}
+concurrency:
+  group: release-rehearsal-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  admission-tests:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Test public PR source without credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_RUNTIME_TOKEN
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ && "$PR_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git init "$RUNNER_TEMP/pr"
+          git -C "$RUNNER_TEMP/pr" fetch --depth 1 https://github.com/tailrocks/termpane.git "refs/pull/$PR_NUMBER/head"
+          test "$(git -C "$RUNNER_TEMP/pr" rev-parse FETCH_HEAD)" = "$PR_SHA"
+          git -C "$RUNNER_TEMP/pr" checkout --detach "$PR_SHA"
+          cd "$RUNNER_TEMP/pr/qualification/termpane-publish"
+          /usr/bin/python3 -m unittest test_candidate_admission.py
+  qualify:
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'tailrocks/termpane' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: release
+    timeout-minutes: 45
+    env:
+      RUSTUP_AUTO_INSTALL: "0"
+      CANDIDATE_PR: ${{ inputs.candidate_pr }}
+      CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+    steps:
+      - name: Fetch reviewed rehearsal and verify candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_RUNTIME_TOKEN
+          git clone --branch main --single-branch https://github.com/tailrocks/termpane.git "$RUNNER_TEMP/control"
+          test "$(git -C "$RUNNER_TEMP/control" rev-parse HEAD)" = "$GITHUB_SHA"
+          /usr/bin/env -i PATH=/usr/bin:/bin HOME="$RUNNER_TEMP" /usr/bin/python3 "$RUNNER_TEMP/control/qualification/termpane-publish/candidate_admission.py" "$CANDIDATE_SHA" "$CANDIDATE_PR"
+          git init "$RUNNER_TEMP/candidate"
+          git -C "$RUNNER_TEMP/candidate" fetch --depth 1 https://github.com/tailrocks/velnor-new.git "refs/pull/$CANDIDATE_PR/head"
+          test "$(git -C "$RUNNER_TEMP/candidate" rev-parse FETCH_HEAD)" = "$CANDIDATE_SHA"
+          git -C "$RUNNER_TEMP/candidate" checkout --detach "$CANDIDATE_SHA"
+          git clone https://github.com/tailrocks/termpane.git "$RUNNER_TEMP/source"
+          git -C "$RUNNER_TEMP/source" checkout --detach f1c2dfde45bdbe91425af6bb17d80e606703baac
+          test "$(git -C "$RUNNER_TEMP/source" rev-parse HEAD)" = f1c2dfde45bdbe91425af6bb17d80e606703baac
+          test -z "$(git -C "$RUNNER_TEMP/source" status --porcelain)"
+          git clone --no-local "$RUNNER_TEMP/source" "$RUNNER_TEMP/preview"
+          git -C "$RUNNER_TEMP/preview" checkout --detach f1c2dfde45bdbe91425af6bb17d80e606703baac
+          git -C "$RUNNER_TEMP/preview" remote set-url origin https://github.com/tailrocks/termpane.git
+      - name: Prepare pinned tools and locked source dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_RUNTIME_TOKEN
+          rustup toolchain install 1.99.1 --profile minimal
+          curl -fsSL --max-filesize 104857600 --max-redirs 5 --proto-redir '=https' --proto '=https' --tlsv1.2 --connect-timeout 15 --max-time 120 -o "$RUNNER_TEMP/nextest.tar.gz" https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.151/cargo-nextest-0.9.151-x86_64-unknown-linux-gnu.tar.gz
+          echo '1d4ce302b820c41f4b89c5fb9bce45f0f0c94882c1cf08fc360caf08be6e7df4  '"$RUNNER_TEMP/nextest.tar.gz" | sha256sum -c -
+          mkdir "$RUNNER_TEMP/nextest" "$RUNNER_TEMP/release-plz" "$RUNNER_TEMP/cargo-cache" "$RUNNER_TEMP/host-cargo" "$RUNNER_TEMP/host-home"
+          tar -xzf "$RUNNER_TEMP/nextest.tar.gz" -C "$RUNNER_TEMP/nextest" cargo-nextest
+          curl -fsSL --max-filesize 104857600 --max-redirs 5 --proto-redir '=https' --proto '=https' --tlsv1.2 --connect-timeout 15 --max-time 120 -o "$RUNNER_TEMP/release-plz.tar.gz" https://github.com/release-plz/release-plz/releases/download/release-plz-v0.4.3/release-plz-x86_64-unknown-linux-musl.tar.gz
+          echo '4a4cfa92ea2abaee02b40daa596a95ca2725816a6a32cb03a8f48ddead287681  '"$RUNNER_TEMP/release-plz.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/release-plz.tar.gz" -C "$RUNNER_TEMP/release-plz" release-plz
+          echo '678330a1f03330fb375d15be8d6e094d0f65d2b70e2af417c69fcec78fa74466  '"$RUNNER_TEMP/release-plz/release-plz" | sha256sum -c -
+          docker pull --platform linux/amd64 rust@sha256:b1b3c9c0d921d7fa0a6d1f9ec7e4eab87f8c8ec97644c3d791450f131dec813f
+          docker run --platform linux/amd64 --rm -v "$RUNNER_TEMP/source:/source" -v "$RUNNER_TEMP/cargo-cache:/cargo-cache" -e CARGO_HOME=/cargo-cache -e RUSTUP_TOOLCHAIN=1.97.1 -w /source rust@sha256:b1b3c9c0d921d7fa0a6d1f9ec7e4eab87f8c8ec97644c3d791450f131dec813f cargo fetch --locked
+      - name: Recheck candidate before execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/env -i PATH=/usr/bin:/bin HOME="$RUNNER_TEMP" /usr/bin/python3 "$RUNNER_TEMP/control/qualification/termpane-publish/candidate_admission.py" "$CANDIDATE_SHA" "$CANDIDATE_PR"
+      - name: Derive provisional intent and upload config
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_RUNTIME_TOKEN
+          /usr/bin/python3 "$RUNNER_TEMP/control/qualification/termpane-publish/prepare_preview.py" "$RUNNER_TEMP/preview" "$RUNNER_TEMP/candidate" "$RUNNER_TEMP/control/qualification/termpane-publish/provisional-config.toml" "$CANDIDATE_SHA"
+          cd "$RUNNER_TEMP/candidate"
+          clean_env=(/usr/bin/env -i PATH="$RUNNER_TEMP/nextest:$HOME/.cargo/bin:/usr/bin:/bin" HOME="$RUNNER_TEMP/host-home" CARGO_HOME="$RUNNER_TEMP/host-cargo" RUSTUP_HOME="$HOME/.rustup" RUSTUP_TOOLCHAIN=1.99.1 RUSTUP_AUTO_INSTALL=0 TMPDIR="$RUNNER_TEMP")
+          "${clean_env[@]}" VELNOR_TEST_PREVIEW_ROOT="$RUNNER_TEMP/preview" VELNOR_TEST_PREVIEW_OUTPUT="$RUNNER_TEMP/intent.toml" cargo nextest run --locked -p velnor-actions-orchestrator --lib -E 'test(supplied_consumer_intent_preview)'
+          "${clean_env[@]}" VELNOR_TEST_UPLOAD_INTENT="$RUNNER_TEMP/intent.toml" VELNOR_TEST_UPLOAD_PACKAGE=termpane VELNOR_TEST_UPLOAD_OUTPUT="$RUNNER_TEMP/upload.toml" cargo nextest run --locked -p velnor-actions-orchestrator --lib -E 'test(supplied_intent_renders_actual_upload_config)'
+          cp "$RUNNER_TEMP/intent.toml" "$RUNNER_TEMP/upload.toml" "$RUNNER_TEMP/release-plz/"
+      - name: Rehearse without network or publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_RUNTIME_TOKEN
+          docker run --platform linux/amd64 --rm --network none --add-host api.github.com:127.0.0.1 --add-host github.com:127.0.0.1 --add-host fixture.actions.githubusercontent.com:127.0.0.1 --add-host crates.io:127.0.0.1 -v "$RUNNER_TEMP/source:/source" -v "$RUNNER_TEMP/cargo-cache:/cargo-cache" -v "$RUNNER_TEMP/release-plz:/test:ro" -v "$RUNNER_TEMP/control/qualification/termpane-publish/fixture.py:/fixture.py:ro" -e RUSTUP_TOOLCHAIN=1.97.1 -w /source rust@sha256:b1b3c9c0d921d7fa0a6d1f9ec7e4eab87f8c8ec97644c3d791450f131dec813f python3 /fixture.py
