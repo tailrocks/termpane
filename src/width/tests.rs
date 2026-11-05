@@ -59,6 +59,15 @@ fn profile_width_stays_aligned_with_ratatui_cell_width() {
             "Ratatui width drift for {cluster:?}"
         );
     }
+
+    for lone in ["\u{ff9e}", "\u{ff9f}"] {
+        assert_eq!(profile.cluster_width(lone), 1);
+        assert_eq!(
+            lone.cell_width(),
+            2,
+            "ratatui fixed its mark compensation: move {lone:?} into `clusters`"
+        );
+    }
 }
 
 #[test]
