@@ -1,0 +1,52 @@
+// SPDX-FileCopyrightText: 2026 Alexey Zhokhov
+// SPDX-License-Identifier: Apache-2.0
+
+//! A resize keeps every wide cell paired with its continuation.
+//!
+//! Every test feeds bytes through `DamageGrid::process` and reads cells back
+//! through the public API.
+
+use termpane::DamageGrid;
+
+fn assert_wide_cells_are_paired(grid: &DamageGrid) {
+    let (rows, cols) = grid.size();
+    for row in 0..rows {
+        for col in 0..cols {
+            let cell = grid.cell(row, col).expect("cell inside the grid");
+            let next_is_continuation = grid
+                .cell(row, col + 1)
+                .is_some_and(|next| next.is_wide_continuation);
+            let previous_is_lead = col > 0
+                && grid
+                    .cell(row, col - 1)
+                    .is_some_and(|previous| previous.is_wide);
+            assert_eq!(
+                cell.is_wide,
+                next_is_continuation,
+                "wide lead at {row},{col} must be followed by its continuation"
+            );
+            assert_eq!(
+                cell.is_wide_continuation,
+                previous_is_lead,
+                "continuation at {row},{col} must follow a wide lead"
+            );
+        }
+    }
+}
+
+#[test]
+fn widening_the_grid_completes_a_wide_cell_at_the_old_last_column() {
+    for new_cols in [4, 6] {
+        let mut grid = DamageGrid::new(1, 3, 0);
+        grid.process("\x1b[1;3H\u{2601}\u{fe0f}".as_bytes());
+        assert!(grid.cell(0, 2).is_some_and(|cell| cell.is_wide));
+
+        grid.set_size(1, new_cols);
+
+        assert_eq!(
+            grid.cell(0, 2).map(|cell| cell.contents().to_owned()),
+            Some("\u{2601}\u{fe0f}".to_owned())
+        );
+        assert_wide_cells_are_paired(&grid);
+    }
+}
