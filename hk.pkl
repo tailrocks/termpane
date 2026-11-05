@@ -16,6 +16,21 @@ steps {
   ["cargo-deny"] = (Builtins.cargo_deny) {
     exclude = List("fuzz/**")
   }
+  ["cargo-nextest-default"] {
+    glob = List("**/*.rs", "Cargo.toml", "Cargo.lock", ".config/nextest.toml")
+    exclude = List("fuzz/**")
+    check = "cargo nextest run --locked --profile ci"
+  }
+  ["cargo-nextest-all-features"] {
+    glob = List("**/*.rs", "Cargo.toml", "Cargo.lock", ".config/nextest.toml")
+    exclude = List("fuzz/**")
+    check = "cargo nextest run --all-features --locked --profile ci"
+  }
+  ["cargo-doc"] {
+    glob = List("**/*.rs", "Cargo.toml", "Cargo.lock")
+    exclude = List("fuzz/**")
+    check = "RUSTDOCFLAGS=\"-D warnings\" cargo doc --no-deps --all-features --locked"
+  }
   ["cargo-clippy"] = (Builtins.cargo_clippy) {
     exclude = List("fuzz/**")
     check = (Builtins.cargo_clippy.check as Config.CommandSpec) {
