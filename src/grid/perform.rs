@@ -460,7 +460,6 @@ impl vte::Perform for DamageGrid {
                 self.last_print = None;
                 self.mode_flags &= !super::HIDE_CURSOR;
                 self.mode_flags &= !super::APPLICATION_CURSOR;
-                self.mode_flags &= !super::BRACKETED_PASTE;
                 self.saved_cursor_row = 0;
                 self.saved_cursor_col = 0;
             }

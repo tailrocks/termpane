@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! DECSTR (`CSI ! p`) follows xterm: it restores auto-wrap, keeps a pending
-//! deferred wrap and the cursor where they are, and homes the saved cursor.
+//! deferred wrap, the cursor and bracketed paste where they are, and homes the
+//! saved cursor.
 //!
 //! Every test feeds bytes through `DamageGrid::process` and reads cells back
 //! through the public API.
@@ -70,4 +71,12 @@ fn a_soft_reset_ends_an_open_zwj_cluster() {
 
     assert_eq!(text(&grid, 0, 0), "\u{1f468}\u{200d}");
     assert_eq!(text(&grid, 0, 2), "\u{1f469}");
+}
+
+#[test]
+fn a_soft_reset_keeps_bracketed_paste() {
+    let mut grid = DamageGrid::new(2, 10, 0);
+    grid.process(b"\x1b[?2004h\x1b[!p");
+
+    assert!(grid.bracketed_paste());
 }
