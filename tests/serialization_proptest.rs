@@ -25,6 +25,9 @@ fn arb_piece() -> impl Strategy<Value = Vec<u8>> {
             "👨\u{200d}👩".as_bytes().to_vec(),
             "\u{200d}👧".as_bytes().to_vec(),
             "x\u{200d}".as_bytes().to_vec(),
+            "\u{231a}".as_bytes().to_vec(),
+            "\u{231a}\u{fe0e}".as_bytes().to_vec(),
+            "\u{fe0e}".as_bytes().to_vec(),
         ]),
         3 => (0u16..=60).prop_map(|n| format!("\x1b[{n}m").into_bytes()),
         1 => prop::sample::select(vec![
@@ -236,4 +239,24 @@ fn a_text_presentation_selector_after_a_wide_emoji_at_the_margin_replays_the_cur
 
     assert_eq!(replayed.cursor_position(), (0, 1));
     assert!(grid.state_eq(&replayed));
+}
+
+#[test]
+fn a_narrowed_wide_emoji_repaints_the_cell_to_its_right_in_a_diff() {
+    let mut grid = DamageGrid::new(2, 3, 5);
+    grid.process(b"\x1b[44m\x1b[J");
+    let mut replayed = DamageGrid::new(2, 3, 5);
+    replayed.process(&grid.state_formatted());
+    assert!(grid.state_eq(&replayed));
+
+    grid.process("\u{231a}\u{fe0e}\x1b[?J\x1b[0m".as_bytes());
+    let diff = grid.state_diff(&replayed);
+    replayed.process(&diff);
+
+    assert!(
+        grid.state_eq(&replayed),
+        "state: {:?}\nreplayed: {:?}",
+        grid.dump().to_text(),
+        replayed.dump().to_text(),
+    );
 }
