@@ -53,10 +53,7 @@ fn a_soft_reset_homes_the_saved_cursor() {
 
     assert_eq!(text(&grid, 0, 0), "X");
     assert_eq!(text(&grid, 2, 4), "");
-}
 
-#[test]
-fn a_saved_cursor_at_the_margin_is_homed_without_a_wrap() {
     let mut grid = DamageGrid::new(2, 10, 0);
     grid.process(b"\x1b[1;10Ha\x1b7\x1b[!p\x1b8X");
 
