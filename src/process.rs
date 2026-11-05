@@ -1310,8 +1310,8 @@ mod tests {
     fn spawn_params_default_is_empty_and_attached() {
         let params = SpawnParams::new("true");
         assert_eq!(params.argv(), &[OsString::from("true")]);
-        assert!(params.env_overrides().is_empty());
-        assert!(params.env_removed().is_empty());
+        assert_eq!(params.env_overrides().len(), 0);
+        assert_eq!(params.env_removed().len(), 0);
         assert!(!params.is_env_cleared());
         assert_eq!(params.cwd(), None);
         assert!(!params.is_detached());

@@ -1079,7 +1079,7 @@ fn insert_delete_line_noop_when_cursor_above_scroll_region() {
     g.process(b"\x1b[L\x1b[M");
 
     assert_eq!(first_col_text(&g, 5), before);
-    assert!(g.drain_scroll_ops().is_empty());
+    assert_eq!(g.drain_scroll_ops().len(), 0);
 }
 
 #[test]
@@ -1092,7 +1092,7 @@ fn insert_delete_line_noop_when_cursor_below_scroll_region() {
     g.process(b"\x1b[L\x1b[M");
 
     assert_eq!(first_col_text(&g, 5), before);
-    assert!(g.drain_scroll_ops().is_empty());
+    assert_eq!(g.drain_scroll_ops().len(), 0);
 }
 
 #[test]

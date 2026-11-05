@@ -326,7 +326,7 @@ fn empty_argv_and_nul_are_rejected() {
         let err = spawn_piped(&params, &null_stdio()).expect_err("empty argv must fail");
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
     }
-    assert!(empty.argv().is_empty());
+    assert_eq!(empty.argv().len(), 0);
 
     let nul_arg = SpawnParams::new("echo").arg("a\0b");
     let err = spawn_piped(&nul_arg, &null_stdio()).expect_err("NUL argv must fail");

@@ -262,7 +262,7 @@ fn live_state_equals_byte_replay_state() {
     assert!(status.success(), "got {status}");
 
     let log = session.output_log().unwrap();
-    assert!(!log.is_empty());
+    assert_ne!(log.len(), 0);
     let live_state = session.state_formatted().unwrap();
 
     let mut replayed = DamageGrid::new(24, 80, 1000);
@@ -505,7 +505,7 @@ fn final_output_immutable_after_drain() {
     let session = spawn_session(&["sh", "-c", script], true).unwrap();
     session.wait_exit(deadline(10)).unwrap();
     let log_before = session.output_log().unwrap();
-    assert!(!log_before.is_empty());
+    assert_ne!(log_before.len(), 0);
     let text_before = session.snapshot().unwrap().to_text();
     let rev_before = session.observe().unwrap().revision;
     // Past the drain grace: nothing may change the declared-drained output.

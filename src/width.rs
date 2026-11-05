@@ -146,7 +146,11 @@ impl VirtualTerminalProfile {
     /// Width of one printable scalar before it joins an existing cluster.
     #[must_use]
     pub fn char_width(self, ch: char) -> u16 {
-        UnicodeWidthChar::width(ch).unwrap_or(1).min(2) as u16
+        if matches!(ch, '\u{ff9e}' | '\u{ff9f}') {
+            0
+        } else {
+            UnicodeWidthChar::width(ch).unwrap_or(1).min(2) as u16
+        }
     }
 
     /// Width of one accepted grapheme-ish cluster in the virtual terminal.
@@ -200,7 +204,7 @@ pub fn display_width(cluster: &str) -> u16 {
         return 0;
     }
 
-    (UnicodeWidthStr::width(cluster) as u16)
+    (UnicodeWidthStr::width(cluster).min(2) as u16)
         .saturating_add(count_halfwidth_katakana_voicing_marks(cluster))
         .min(2)
 }
@@ -209,7 +213,8 @@ fn count_halfwidth_katakana_voicing_marks(cluster: &str) -> u16 {
     cluster
         .chars()
         .filter(|ch| matches!(ch, '\u{ff9e}' | '\u{ff9f}'))
-        .count() as u16
+        .map(|ch| 1u16.saturating_sub(UnicodeWidthChar::width(ch).unwrap_or(0) as u16))
+        .fold(0u16, u16::saturating_add)
 }
 
 #[cfg(test)]

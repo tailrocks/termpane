@@ -119,3 +119,14 @@ fn attrs_supported_rejects_when_profile_lacks_capability() {
     // …but a default-colored, unstyled attr still passes the same mono profile.
     assert!(mono.attrs_supported(&Attrs::default()));
 }
+
+#[test]
+fn halfwidth_voicing_marks_join_and_contribute_one_column() {
+    let profile = VirtualTerminalProfile::default();
+    for mark in ['\u{ff9e}', '\u{ff9f}'] {
+        assert_eq!(profile.char_width(mark), 0);
+        assert_eq!(display_width(&mark.to_string()), 1);
+        assert_eq!(display_width(&format!("\u{ff76}{mark}")), 2);
+        assert_eq!(display_width(&mark.to_string().repeat(65_536)), 2);
+    }
+}
