@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: 2026 Alexey Zhokhov
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
+: "${CANDIDATE_SHA:?}" "${SOURCE_SHA:?}" "${CANDIDATE_PR:?}"
 umask 077
 unset GH_TOKEN GITHUB_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_RUNTIME_TOKEN
 
@@ -85,6 +86,7 @@ docker run --platform linux/amd64 --rm --network none \
   -e VELNOR_FIXTURE_BASELINE_VERSION=0.1.0 -e VELNOR_FIXTURE_BASELINE_ARCHIVE=/inputs/baseline.crate \
   -e VELNOR_FIXTURE_BASELINE_INDEX=/inputs/index.jsonl -e VELNOR_FIXTURE_DEPENDENCY_SNAPSHOTS=/inputs/deps \
   -e VELNOR_NATIVE_REGISTRY_SNAPSHOT=/fixture-registry \
+  -e VELNOR_NATIVE_FIXTURE_EVIDENCE=/runner/coordinate/native-evidence.json \
   -e PATH=/tools:/usr/local/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
   "$image" python3 /fixture/drive.py coordinate
 
@@ -92,6 +94,12 @@ docker run --platform linux/amd64 --rm --network none \
   -v "$RUNNER_TEMP/source:/source:ro" -v "$RUNNER_TEMP/cargo-cache:/cargo" \
   -v "$runner/coordinate/fixture-package/package/termpane-0.1.1.crate:/archive.crate:ro" \
   -v "$control/verify_archive.py:/verify_archive.py:ro" \
+  -v "$control/fixture_receipt.py:/fixture_receipt.py:ro" \
+  -v "$RUNNER_TEMP/candidate:/candidate:ro" \
+  -v "$RUNNER_TEMP/intent.toml:/intent.toml:ro" \
+  -v "$workspace/final-coordinate/.github/velnor-release-intent.toml:/effective.toml:ro" \
+  -v "$runner/coordinate/native-evidence.json:/native-evidence.json:ro" \
+  -v "$assets/release-manifest.json:/manifest.json:ro" \
   -e CARGO_HOME=/cargo -e RUSTUP_TOOLCHAIN=1.97.1 -w /source \
   rust@sha256:b1b3c9c0d921d7fa0a6d1f9ec7e4eab87f8c8ec97644c3d791450f131dec813f \
-  python3 /verify_archive.py /archive.crate /source
+  python3 /fixture_receipt.py /native-evidence.json /archive.crate /source /candidate /intent.toml /effective.toml /manifest.json "$CANDIDATE_SHA" "$SOURCE_SHA" "$CANDIDATE_PR"
