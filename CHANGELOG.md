@@ -25,7 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the cursor and a deferred wrap where they are, and homes the saved cursor
   (DECSC state) to the top-left. It used to leave `?7l` in force, cancel a
   deferred wrap, and save the current cursor. It no longer turns bracketed
-  paste (`?2004`) off, which xterm clears only on a full reset (`ESC c`).
+  paste (`?2004`) off, which xterm clears only on a full reset (`ESC c`), and
+  it turns the application keypad (`ESC =`) off, as xterm does.
 
 ### Fixed
 
