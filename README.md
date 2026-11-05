@@ -96,7 +96,7 @@ let dirty = grid.dump_dirty_patch(); // GridPatch: only what changed
 
 ## Requirements
 
-Rust 1.97 or newer (MSRV, pinned by `rust-toolchain.toml`).
+Rust 1.99 or newer (MSRV, pinned by `rust-toolchain.toml`).
 
 ## Verify
 

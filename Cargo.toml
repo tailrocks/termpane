@@ -5,7 +5,7 @@
 name = "termpane"
 version = "0.1.1"
 edition = "2024"
-rust-version = "1.97"
+rust-version = "1.99"
 authors = ["Alexey Zhokhov <alexey@zhokhov.com>"]
 description = "Deterministic terminal screen-state emulator: a VT-parsed cell grid with typed attributes, scrollback, snapshots, and damage tracking."
 license = "Apache-2.0"
@@ -72,9 +72,9 @@ portable-pty = { version = "0.9", optional = true }
 [dev-dependencies]
 criterion = { version = "=0.8.2", features = ["html_reports"] }
 dhat = "=0.3.3"
-proptest = "1.11.0"
+proptest = "1.12.0"
 ratatui-core = "=0.1.2"
-serde_json = "=1.0.151"
+serde_json = "=1.0.154"
 
 [[bench]]
 name = "present_frame"
@@ -163,6 +163,7 @@ panic = "deny"
 manual_assert = "deny"
 manual_let_else = "warn"
 match_bool = "warn"
+assert_is_empty = "allow"
 # allow census: docs/content/reference/developer-reference/lint-policy.mdx
 needless_pass_by_value = "allow"
 trivially_copy_pass_by_ref = "warn"
