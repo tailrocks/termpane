@@ -1985,20 +1985,14 @@ impl DamageGrid {
             // Mode 1049: save cursor before entering alt screen, restore after leaving.
             47 | 1047 => self.set_alt_screen(enabled),
             1049 => {
-                // The 1049 enter/exit moves the cursor (home on enter, saved
-                // cursor on exit): break cluster continuation.
-                self.last_print = None;
                 if enabled {
                     self.saved_cursor_row = self.cursor_row;
                     self.saved_cursor_col = self.cursor_col;
                     self.set_alt_screen(true);
-                    self.cursor_row = 0;
-                    self.cursor_col = 0;
+                    self.clear_pending_wrap();
                 } else {
                     self.set_alt_screen(false);
-                    self.cursor_row = self.saved_cursor_row;
-                    self.cursor_col = self.saved_cursor_col;
-                    self.clamp_cursor();
+                    self.restore_saved_cursor();
                     // Reset kitty keyboard stack on alt-screen exit: programs in
                     // the alt screen may not clean up their keyboard mode stack,
                     // so pop all pushed levels and emit one reset per level so

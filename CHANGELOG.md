@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deferred wrap, and save the current cursor. It no longer turns bracketed
   paste (`?2004`) off, which xterm clears only on a full reset (`ESC c`), and
   it turns the application keypad (`ESC =`) off, as xterm does.
+- `?1049h` follows xterm: it saves the cursor with its deferred wrap, cancels
+  the wrap and leaves the cursor where it was instead of homing it. `?1049l`
+  restores the saved cursor together with its deferred wrap. A wrap that was
+  pending before the switch used to fire on the first printable of the
+  alternate screen, and one that was pending when the screen was entered was
+  lost on the way out.
 
 ### Fixed
 
