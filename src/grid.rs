@@ -445,10 +445,11 @@ impl RowStore {
 
         if width_changed {
             for row in &mut self.rows {
+                let old_cols = row.len();
                 row.resize(target_cols, Cell::default());
-                // Truncation can drop a wide char's continuation cell; blank
-                // the orphaned lead left behind in the new last column.
-                if let Some(last) = row.last_mut()
+                if target_cols > old_cols {
+                    complete_wide_lead(row, old_cols);
+                } else if let Some(last) = row.last_mut()
                     && last.is_wide
                 {
                     *last = Cell::default();
@@ -1386,11 +1387,13 @@ impl DamageGrid {
             grid[row][col].hyperlink = hyperlink;
             set_cell_width(&mut grid[row], col, new_width, attrs, cols);
         }
-        if self.cursor_row == row as u16
-            && self.cursor_col == old_cursor_end
-            && self.cursor_col < self.cols
-        {
-            self.cursor_col = (col as u16 + new_width).min(self.cols);
+        if self.cursor_row == row as u16 && self.cursor_col == old_cursor_end {
+            if self.cursor_col < self.cols {
+                self.cursor_col = (col as u16 + new_width).min(self.cols);
+            } else if new_width < old_width {
+                self.cursor_col = col as u16 + new_width;
+                self.mode_flags &= !PENDING_WRAP;
+            }
         }
         if self.cursor_row == row as u16
             && ((self.mode_flags & PENDING_WRAP != 0) || self.cursor_col >= self.cols)
@@ -1563,6 +1566,13 @@ impl DamageGrid {
         self.last_print = None;
         if self.cursor_col >= self.cols {
             self.cursor_col = self.cols.saturating_sub(1);
+        }
+    }
+
+    fn restore_autowrap(&mut self) {
+        if self.mode_flags & NO_AUTOWRAP != 0 {
+            self.clear_pending_wrap();
+            self.mode_flags &= !NO_AUTOWRAP;
         }
     }
 
@@ -1978,20 +1988,14 @@ impl DamageGrid {
             // Mode 1049: save cursor before entering alt screen, restore after leaving.
             47 | 1047 => self.set_alt_screen(enabled),
             1049 => {
-                // The 1049 enter/exit moves the cursor (home on enter, saved
-                // cursor on exit): break cluster continuation.
-                self.last_print = None;
                 if enabled {
                     self.saved_cursor_row = self.cursor_row;
                     self.saved_cursor_col = self.cursor_col;
                     self.set_alt_screen(true);
-                    self.cursor_row = 0;
-                    self.cursor_col = 0;
+                    self.clear_pending_wrap();
                 } else {
                     self.set_alt_screen(false);
-                    self.cursor_row = self.saved_cursor_row;
-                    self.cursor_col = self.saved_cursor_col;
-                    self.clamp_cursor();
+                    self.restore_saved_cursor();
                     // Reset kitty keyboard stack on alt-screen exit: programs in
                     // the alt screen may not clean up their keyboard mode stack,
                     // so pop all pushed levels and emit one reset per level so

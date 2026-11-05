@@ -200,16 +200,7 @@ pub fn display_width(cluster: &str) -> u16 {
         return 0;
     }
 
-    (UnicodeWidthStr::width(cluster) as u16)
-        .saturating_add(count_halfwidth_katakana_voicing_marks(cluster))
-        .min(2)
-}
-
-fn count_halfwidth_katakana_voicing_marks(cluster: &str) -> u16 {
-    cluster
-        .chars()
-        .filter(|ch| matches!(ch, '\u{ff9e}' | '\u{ff9f}'))
-        .count() as u16
+    (UnicodeWidthStr::width(cluster) as u16).min(2)
 }
 
 #[cfg(test)]

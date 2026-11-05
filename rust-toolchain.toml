@@ -6,5 +6,5 @@
 # `rust-version` in Cargo.toml matches this channel; older compilers are unsupported.
 
 [toolchain]
-channel = "1.97.1"
+channel = "1.99.1"
 components = ["clippy", "rustfmt"]

@@ -16,9 +16,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `DamageGrid::hyperlink_target_at_content_row` reads the cell's own link, so a
   link no longer disappears when many other links have been written. A switch
   to or from the alternate screen ends the open link, as it already did for hover.
+- `unicode-width` 0.2.3 is the minimum. It gives the halfwidth katakana voiced
+  marks U+FF9E and U+FF9F a width of one column (0.2.2 gave them zero), so
+  `display_width` no longer adds a column for each mark. A mark now prints in
+  its own cell after its base, as xterm does, instead of joining the base and
+  widening it to two columns. `display_width("\u{ff9e}")` is 1, not 2.
+- `CSI ! p` (DECSTR) follows xterm. It turns auto-wrap (`?7`) back on, keeps
+  the cursor and a deferred wrap where they are, and homes the saved cursor
+  (DECSC state) to the top-left. It used to leave `?7l` in force, cancel a
+  deferred wrap, and save the current cursor. It no longer turns bracketed
+  paste (`?2004`) off, which xterm clears only on a full reset (`ESC c`), and
+  it turns the application keypad (`ESC =`) off, as xterm does.
+- `?1049h` follows xterm: it saves the cursor with its deferred wrap, cancels
+  the wrap and leaves the cursor where it was instead of homing it. `?1049l`
+  restores the saved cursor together with its deferred wrap. A wrap that was
+  pending before the switch used to fire on the first printable of the
+  alternate screen, and one that was pending when the screen was entered was
+  lost on the way out.
 
 ### Fixed
 
+- `state_diff` and `contents_diff` left the cell to the right of a narrowed
+  cluster (`U+231A U+FE0E`) wrong when it did not change. The replay prints the
+  wide emoji first, which overwrites that cell, then narrows it to a default
+  cell, so a blank cell with a background color came back default. The diff now
+  repaints the cell after every cluster that narrows on replay, including a
+  first cell redrawn because its row changed from hard to soft wrapping.
+- A text-presentation selector (`U+FE0E`) that narrows a wide emoji written at
+  the right margin left the cursor on the pending-wrap column while the cluster
+  no longer reached the margin, so `state_formatted` replayed to a different
+  cursor column. The cursor now follows the narrowed cluster and the wrap
+  that was pending is cancelled.
+- Widening the grid left a wide cell at the old last column without its
+  continuation: a cluster that grew to two columns in the last column (`U+2601
+  U+FE0F`) kept its lead flag and the new column beside it stayed blank. The
+  continuation cell is now added, so a wide lead is always paired.
 - `CSI Ps L`, `M`, `S` and `T` with a huge count (`CSI 65535 L`) ran one pass
   per unit of the count, so eight bytes held a pane for about a tenth of a
   second in a debug build. The count is now clamped to the rows from the cursor to the bottom
@@ -40,10 +72,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bound. Marks past the limit are dropped; a printable that follows a joiner in
   a full cluster starts the next cell. The longest emoji ZWJ sequence (10
   characters) is unchanged.
-- `CSI ! p` (DECSTR) at the right margin, and a wide glyph suppressed by
-  `CSI ? 7 l`, no longer leave the cursor in the phantom column without a
-  deferred wrap, where the next printable was dropped and later marks joined
-  the last cell.
+- A wide glyph suppressed by `CSI ? 7 l` no longer leaves the cursor in the
+  phantom column without a deferred wrap, where the next printable was dropped
+  and later marks joined the last cell. `CSI ! p` (DECSTR) at the right margin
+  cannot reach that state either: it keeps the deferred wrap, or, when `?7l`
+  was in force, moves the cursor back onto the last column.
 
 ## [0.1.1] - 2026-11-03
 

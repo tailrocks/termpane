@@ -408,6 +408,19 @@ struct RowCtx<'a> {
     row: u16,
     cols: u16,
     wrapping: bool,
+    profile: VirtualTerminalProfile,
+}
+
+/// Does replaying `cell` print a wide scalar first and then narrow it? The
+/// wide print overwrites the cell to its right, and the narrowing leaves it
+/// default, so a diff must repaint that cell even when it did not change.
+fn narrows_on_replay(profile: VirtualTerminalProfile, cell: &Cell) -> bool {
+    !cell.is_wide
+        && cell
+            .contents()
+            .chars()
+            .next()
+            .is_some_and(|ch| profile.char_width(ch) > 1)
 }
 
 /// Flush a pending erase run starting at the recorded column: move to the run
@@ -456,6 +469,7 @@ fn write_row_formatted(
         row: row_idx,
         cols,
         wrapping,
+        ..
     } = *ctx;
     let default_cell = Cell::default();
     let mut prev_was_wide = false;
@@ -573,37 +587,25 @@ fn write_row_diff(
         row: row_idx,
         cols,
         wrapping,
+        profile,
     } = *ctx;
     let mut prev_was_wide = false;
 
     let first_cell = &cells[0];
-    let prev_first_cell = &prev_cells[0];
-    if wrapping
+    let wrap_redraw = wrapping
         && !prev_wrapping
-        && first_cell == prev_first_cell
+        && *first_cell == prev_cells[0]
         && prev_pos.row + 1 == row_idx
         && prev_pos.col >= cols
-        && !prev_row.is_some_and(zwj_wrap_hazard)
-    {
-        // The previous row now wraps into this one: perform the pending wrap
-        // by redrawing the first cell, then back onto the row start.
+        && !prev_row.is_some_and(zwj_wrap_hazard);
+    let mut repaint_next = wrap_redraw && first_cell.has_contents();
+    if wrap_redraw && !first_cell.has_contents() {
         if prev_attrs != first_cell.attrs {
             write_attrs_diff(out, &first_cell.attrs, &prev_attrs);
             prev_attrs = first_cell.attrs.clone();
         }
-        let mut contents = prev_first_cell.contents();
-        let need_erase = contents.is_empty();
-        if need_erase {
-            contents = " ";
-        }
-        out.extend_from_slice(contents.as_bytes());
-        out.push(0x08);
-        if prev_first_cell.is_wide {
-            out.push(0x08);
-        }
-        if need_erase {
-            write_erase_chars(out, 1);
-        }
+        out.extend_from_slice(b" \x08");
+        write_erase_chars(out, 1);
         prev_pos = Pos {
             row: row_idx,
             col: 0,
@@ -634,7 +636,8 @@ fn write_row_diff(
             );
         }
 
-        if cell != prev_cell {
+        let repaint = std::mem::take(&mut repaint_next);
+        if repaint || cell != prev_cell {
             if cell.has_contents() {
                 write_content_move(out, pos, &mut prev_pos, cols, wrapping, prev_row, cells);
 
@@ -646,6 +649,7 @@ fn write_row_diff(
                 let width = u16::from(cell.is_wide);
                 out.extend_from_slice(cell.contents().as_bytes());
                 prev_pos.col = (pos.col + 1 + width).min(cols);
+                repaint_next = narrows_on_replay(profile, cell);
             } else if erase.is_none() {
                 erase = Some((pos.col, cell.attrs.clone()));
             }
@@ -783,6 +787,7 @@ impl DamageGrid {
                 row: i,
                 cols,
                 wrapping,
+                profile: self.profile,
             };
             let (new_pos, new_attrs) = write_row_formatted(out, &ctx, prev_pos, prev_attrs);
             prev_pos = new_pos;
@@ -843,6 +848,7 @@ impl DamageGrid {
                 row: i,
                 cols,
                 wrapping,
+                profile: self.profile,
             };
             let (new_pos, new_attrs) =
                 write_row_diff(out, &ctx, prev_cells, prev_wrapping, prev_pos, prev_attrs);
