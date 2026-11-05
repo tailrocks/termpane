@@ -32,7 +32,8 @@ def archive_files(path):
             if not item.isfile() or not item.name.startswith(PREFIX):
                 raise ValueError("unexpected archive entry")
             name = item.name[len(PREFIX):]
-            if not name or name.startswith("/") or posixpath.normpath(name) != name or name in result:
+            if (not name or name.startswith("/") or any(part in (".", "..") for part in name.split("/"))
+                    or posixpath.normpath(name) != name or name in result):
                 raise ValueError("invalid or duplicate archive path")
             result[name] = archive.extractfile(item).read()
     return result
