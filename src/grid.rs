@@ -448,17 +448,7 @@ impl RowStore {
                 let old_cols = row.len();
                 row.resize(target_cols, Cell::default());
                 if target_cols > old_cols {
-                    if let Some(lead) = old_cols.checked_sub(1).and_then(|last| row.get(last))
-                        && lead.is_wide
-                    {
-                        row[old_cols] = Cell {
-                            contents: compact_str::CompactString::new(""),
-                            is_wide: false,
-                            is_wide_continuation: true,
-                            attrs: lead.attrs.clone(),
-                            hyperlink: lead.hyperlink.clone(),
-                        };
-                    }
+                    complete_wide_lead(row, old_cols);
                 } else if let Some(last) = row.last_mut()
                     && last.is_wide
                 {
