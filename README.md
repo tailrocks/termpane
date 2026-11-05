@@ -105,8 +105,8 @@ Rust 1.99 or newer (MSRV, pinned by `rust-toolchain.toml`).
 ## Verify
 
 ```sh
-cargo nextest run                                        # 161 tests (114 unit + 43 conformance + 4 serialization_proptest)
-cargo nextest run --all-features                         # +2 dhat allocation tests
+cargo nextest run                                        # 213 tests (129 unit + 43 conformance + 5 serialization_proptest + 36 other integration)
+cargo nextest run --all-features                         # 332 tests: adds the process, pty and session suites and the dhat allocation tests
 cargo clippy --all-targets --all-features -- -D warnings
 cargo fuzz run damage_grid_process -- -max_total_time=30 # bounded fuzz smoke
 cargo bench --bench resize_storm -- --quick
