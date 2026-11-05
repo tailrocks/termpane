@@ -36,6 +36,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A text-presentation selector (`U+FE0E`) that narrows a wide emoji written at
+  the right margin left the cursor on the pending-wrap column while the cluster
+  no longer reached the margin, so `state_formatted` replayed to a different
+  cursor column. The cursor now follows the narrowed cluster and the wrap
+  that was pending is cancelled.
 - Widening the grid left a wide cell at the old last column without its
   continuation: a cluster that grew to two columns in the last column (`U+2601
   U+FE0F`) kept its lead flag and the new column beside it stayed blank. The

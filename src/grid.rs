@@ -1387,11 +1387,13 @@ impl DamageGrid {
             grid[row][col].hyperlink = hyperlink;
             set_cell_width(&mut grid[row], col, new_width, attrs, cols);
         }
-        if self.cursor_row == row as u16
-            && self.cursor_col == old_cursor_end
-            && self.cursor_col < self.cols
-        {
-            self.cursor_col = (col as u16 + new_width).min(self.cols);
+        if self.cursor_row == row as u16 && self.cursor_col == old_cursor_end {
+            if self.cursor_col < self.cols {
+                self.cursor_col = (col as u16 + new_width).min(self.cols);
+            } else if new_width < old_width {
+                self.cursor_col = col as u16 + new_width;
+                self.mode_flags &= !PENDING_WRAP;
+            }
         }
         if self.cursor_row == row as u16
             && ((self.mode_flags & PENDING_WRAP != 0) || self.cursor_col >= self.cols)

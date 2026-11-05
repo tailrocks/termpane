@@ -224,3 +224,16 @@ proptest! {
         prop_assert_eq!(replayed.cursor_style(), grid.cursor_style());
     }
 }
+
+#[test]
+fn a_text_presentation_selector_after_a_wide_emoji_at_the_margin_replays_the_cursor() {
+    let mut grid = DamageGrid::new(3, 2, 5);
+    grid.process("\u{231a}\x08\u{fe0e}\x1b[9C\x1b[2G".as_bytes());
+    assert_eq!(grid.cursor_position(), (0, 1));
+
+    let mut replayed = DamageGrid::new(3, 2, 5);
+    replayed.process(&grid.state_formatted());
+
+    assert_eq!(replayed.cursor_position(), (0, 1));
+    assert!(grid.state_eq(&replayed));
+}
