@@ -36,6 +36,17 @@ SHA. This rehearsal does not prove a real GitHub OIDC exchange, registry
 upload, or published artifact identity. The test-only dispatcher does not
 remove the production guards.
 
+After the offline coordinator succeeds, the wrapper verifies the fixture's
+bounded observation against the actual candidate and source Git commits and
+trees, both intent files, the fixture package, and the pinned generator
+manifest. It compares the complete package with the approved source before
+printing `TERMPANE_FIXTURE_OBSERVATION=` followed by bounded JSON. This marker
+is an untrusted result produced by reviewed rehearsal code, not a registry
+publication, an attestation, or release authorization. A separate trusted
+verifier must authenticate the exact successful workflow run and executor job,
+verify the inputs and review state independently, and reject missing, duplicate,
+stale, malformed, or inconsistent markers.
+
 After the authorized Velnor release exists, regenerate and review the actual
 termpane release intent and workflow with the published generator. Compare the
 actual intent with this provisional draft, then update and rerun the reviewed
