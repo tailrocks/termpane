@@ -80,3 +80,15 @@ fn a_soft_reset_keeps_bracketed_paste() {
 
     assert!(grid.bracketed_paste());
 }
+
+#[test]
+fn a_soft_reset_turns_application_keypad_and_cursor_keys_off() {
+    let mut grid = DamageGrid::new(2, 10, 0);
+    grid.process(b"\x1b=\x1b[?1h");
+    assert!(grid.application_keypad());
+    assert!(grid.application_cursor());
+
+    grid.process(b"\x1b[!p");
+    assert!(!grid.application_keypad());
+    assert!(!grid.application_cursor());
+}
