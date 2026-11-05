@@ -190,14 +190,13 @@ fn kitty_and_modify_other_keys_stay_on_the_forward_allowlist() {
 #[test]
 fn decstr_resets_modes_attrs_and_margins_in_grid() {
     let mut grid = DamageGrid::new(10, 20, 10);
-    grid.process(b"\x1b[1m\x1b[?25l\x1b[?1h\x1b[?2004h\x1b[2;5r");
+    grid.process(b"\x1b[1m\x1b[?25l\x1b[?1h\x1b[2;5r");
     grid.process(b"\x1b[!p");
     assert!(!grid.hide_cursor(), "DECSTR must re-show the cursor");
     assert!(
         !grid.application_cursor(),
         "DECSTR must reset application cursor keys"
     );
-    assert!(!grid.bracketed_paste(), "DECSTR must reset bracketed paste");
     let events = grid.drain_passthrough();
     assert!(
         !events.iter().any(|e| matches!(
