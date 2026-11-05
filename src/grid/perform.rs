@@ -456,12 +456,13 @@ impl vte::Perform for DamageGrid {
                 self.current_attrs = Attrs::default();
                 self.scroll_top = 0;
                 self.scroll_bottom = self.rows.saturating_sub(1);
-                self.clear_pending_wrap();
+                self.restore_autowrap();
+                self.last_print = None;
                 self.mode_flags &= !super::HIDE_CURSOR;
                 self.mode_flags &= !super::APPLICATION_CURSOR;
                 self.mode_flags &= !super::BRACKETED_PASTE;
-                self.saved_cursor_row = self.cursor_row;
-                self.saved_cursor_col = self.cursor_col;
+                self.saved_cursor_row = 0;
+                self.saved_cursor_col = 0;
             }
             // xterm modifyOtherKeys (`CSI > 4 ; n m`) — on the forward
             // allowlist: the capsule's input layer relies on the outer

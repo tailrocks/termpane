@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `display_width` no longer adds a column for each mark. A mark now prints in
   its own cell after its base, as xterm does, instead of joining the base and
   widening it to two columns. `display_width("\u{ff9e}")` is 1, not 2.
+- `CSI ! p` (DECSTR) follows xterm. It turns auto-wrap (`?7`) back on, keeps
+  the cursor and a deferred wrap where they are, and homes the saved cursor
+  (DECSC state) to the top-left. It used to leave `?7l` in force, cancel a
+  deferred wrap, and save the current cursor.
 
 ### Fixed
 
@@ -45,10 +49,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bound. Marks past the limit are dropped; a printable that follows a joiner in
   a full cluster starts the next cell. The longest emoji ZWJ sequence (10
   characters) is unchanged.
-- `CSI ! p` (DECSTR) at the right margin, and a wide glyph suppressed by
-  `CSI ? 7 l`, no longer leave the cursor in the phantom column without a
-  deferred wrap, where the next printable was dropped and later marks joined
-  the last cell.
+- A wide glyph suppressed by `CSI ? 7 l` no longer leaves the cursor in the
+  phantom column without a deferred wrap, where the next printable was dropped
+  and later marks joined the last cell. `CSI ! p` (DECSTR) at the right margin
+  cannot reach that state either: it keeps the deferred wrap, or, when `?7l`
+  was in force, moves the cursor back onto the last column.
 
 ## [0.1.1] - 2026-11-03
 

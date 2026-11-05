@@ -1566,6 +1566,13 @@ impl DamageGrid {
         }
     }
 
+    fn restore_autowrap(&mut self) {
+        if self.mode_flags & NO_AUTOWRAP != 0 {
+            self.clear_pending_wrap();
+            self.mode_flags &= !NO_AUTOWRAP;
+        }
+    }
+
     fn clamp_cursor(&mut self) {
         self.cursor_row = self.cursor_row.min(self.rows.saturating_sub(1));
         self.cursor_col = self.cursor_col.min(self.cols.saturating_sub(1));

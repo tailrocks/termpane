@@ -35,6 +35,10 @@ These guarantees describe the default model-only build. The optional
 transport features below spawn real processes by design; passive users
 (`default = []`) get zero new dependencies and zero host effects.
 
+## Known divergences from xterm
+
+- **DECSTR and the saved wrap flag**: xterm's soft reset homes the saved cursor but keeps the deferred-wrap flag in the saved state, so a later DECRC restores the top-left cell with a wrap pending. `termpane` stores a deferred wrap as a saved column past the last one, so it cannot hold a wrap at the top-left; DECRC after DECSTR restores the top-left with no wrap pending.
+
 ## Process and PTY transport (optional features)
 
 Unix-only. `process` covers piped children (spawn-params builder, piped
