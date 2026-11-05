@@ -17,11 +17,13 @@ steps {
     exclude = List("fuzz/**")
   }
   ["cargo-nextest-default"] {
+    exclusive = true
     glob = List("**/*.rs", "Cargo.toml", "Cargo.lock", ".config/nextest.toml")
     exclude = List("fuzz/**")
     check = "cargo nextest run --locked --profile ci"
   }
   ["cargo-nextest-all-features"] {
+    exclusive = true
     glob = List("**/*.rs", "Cargo.toml", "Cargo.lock", ".config/nextest.toml")
     exclude = List("fuzz/**")
     check = "cargo nextest run --all-features --locked --profile ci"
