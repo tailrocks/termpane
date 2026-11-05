@@ -71,6 +71,17 @@ class FixtureReceiptTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     archive_files(archive)
 
+    def test_archive_rejects_oversized_pax_metadata(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "oversized-pax.crate"
+            with tarfile.open(path, "w:gz", format=tarfile.PAX_FORMAT) as output:
+                entry = tarfile.TarInfo("termpane-0.1.1/a")
+                entry.pax_headers = {"comment": "x" * (17 * 1024 * 1024)}
+                entry.size = 1
+                output.addfile(entry, io.BytesIO(b"x"))
+            with self.assertRaises(ValueError):
+                archive_files(path)
+
     def test_archive_rejects_oversized_entry_before_extraction(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "oversized.crate"
