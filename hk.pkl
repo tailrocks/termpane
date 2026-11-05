@@ -1,0 +1,25 @@
+// SPDX-FileCopyrightText: 2026 Alexey Zhokhov
+// SPDX-License-Identifier: Apache-2.0
+
+amends "package://github.com/jdx/hk/releases/download/v2.11.1/hk@2.11.1#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v2.11.1/hk@2.11.1#/Builtins.pkl"
+import "package://github.com/jdx/hk/releases/download/v2.11.1/hk@2.11.1#/Config.pkl"
+
+steps {
+  ["mise"] = Builtins.mise
+  ["cargo-fmt"] = (Builtins.cargo_fmt) {
+    exclude = List("fuzz/**")
+    check = (Builtins.cargo_fmt.check as Config.CommandSpec) {
+      command = "cargo fmt --all --check"
+    }
+  }
+  ["cargo-deny"] = (Builtins.cargo_deny) {
+    exclude = List("fuzz/**")
+  }
+  ["cargo-clippy"] = (Builtins.cargo_clippy) {
+    exclude = List("fuzz/**")
+    check = (Builtins.cargo_clippy.check as Config.CommandSpec) {
+      command = "cargo clippy --all-targets --all-features --locked -- -D warnings"
+    }
+  }
+}

@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: 2026 Alexey Zhokhov
+# SPDX-License-Identifier: Apache-2.0
+
+min_version = "2026.10.18"
+
+[tools]
+rust = { version = "1.99.1", profile = "minimal", components = [
+  "clippy",
+  "rustfmt",
+], targets = [
+  "aarch64-unknown-linux-gnu",
+  "x86_64-unknown-linux-gnu",
+], mr_boxington = true }
+mr-boxington = { version = "1.29.2", workflow = "release.yml@refs/heads/main" }
+hk = "2.11.1"
+"aqua:nextest-rs/nextest/cargo-nextest" = "0.9.151"
+"aqua:EmbarkStudios/cargo-deny" = "0.20.2"
+
+[settings]
+cargo.binstall = true
+idiomatic_version_file_enable_tools = ["rust"]
+lockfile = true
+
+[wrappers.cargo]
+command = "mbx"
+env = { MBX_CARGO_SHIM_MODE = "1" }
