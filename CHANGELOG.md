@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `DamageGrid::hyperlink_target_at_content_row` reads the cell's own link, so a
   link no longer disappears when many other links have been written. A switch
   to or from the alternate screen ends the open link, as it already did for hover.
+- `unicode-width` 0.2.3 is the minimum. It gives the halfwidth katakana voiced
+  marks U+FF9E and U+FF9F a width of one column (0.2.2 gave them zero), so
+  `display_width` no longer adds a column for each mark. A mark now prints in
+  its own cell after its base, as xterm does, instead of joining the base and
+  widening it to two columns. `display_width("\u{ff9e}")` is 1, not 2.
 
 ### Fixed
 

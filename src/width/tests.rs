@@ -20,6 +20,8 @@ fn width_oracle_covers_profile_clusters() {
         ("\u{ff76}", 1),
         ("\u{ff76}\u{ff9e}", 2),
         ("\u{ff8a}\u{ff9f}", 2),
+        ("\u{ff9e}", 1),
+        ("\u{ff9f}", 1),
         ("\u{00a1}", 1),
     ];
 

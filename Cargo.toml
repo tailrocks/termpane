@@ -47,7 +47,7 @@ path = "src/lib.rs"
 # This is the "parse" layer in our vte → DamageGrid → PassthroughEvents → WireDiff pipeline.
 vte = "0.15"
 
-unicode-width = "0.2"
+unicode-width = "0.2.3"
 
 # Phase 4: inline storage for grapheme clusters (≤24 bytes = no heap alloc for ASCII + most Unicode).
 # Eliminates the per-cell `String` alloc storm in the render path.

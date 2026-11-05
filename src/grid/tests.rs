@@ -283,32 +283,38 @@ fn vs16_and_zwj_sequences_stay_one_cluster() {
 }
 
 #[test]
-fn halfwidth_katakana_voicing_mark_grows_cluster_width() {
+fn halfwidth_katakana_voiced_marks_take_their_own_cell() {
     let mut grid = DamageGrid::new(5, 20, 10);
-    grid.process("\u{ff76}\u{ff9e}X".as_bytes());
+    grid.process("\u{ff76}\u{ff9e}\u{ff8a}\u{ff9f}X".as_bytes());
 
-    assert_eq!(cell_text(&grid, 0, 0), "\u{ff76}\u{ff9e}");
-    assert!(
-        grid.cell(0, 0).expect("dakuten lead").is_wide,
-        "dakuten cluster must grow to two columns"
-    );
-    assert!(
-        grid.cell(0, 1)
-            .expect("dakuten continuation")
-            .is_wide_continuation,
-        "dakuten growth must create a continuation cell"
-    );
-    assert_eq!(
-        cell_text(&grid, 0, 2),
-        "X",
-        "next printable must use the grown cursor column"
-    );
+    for (col, text) in [
+        (0, "\u{ff76}"),
+        (1, "\u{ff9e}"),
+        (2, "\u{ff8a}"),
+        (3, "\u{ff9f}"),
+    ] {
+        assert_eq!(cell_text(&grid, 0, col), text);
+        let cell = grid.cell(0, col).expect("halfwidth cell");
+        assert!(!cell.is_wide, "halfwidth cell {col} is one column");
+        assert!(!cell.is_wide_continuation, "cell {col} owns its column");
+    }
+    assert_eq!(cell_text(&grid, 0, 4), "X");
+    assert_eq!(grid.cursor_position(), (0, 5));
+}
+
+#[test]
+fn a_leading_halfwidth_voiced_mark_is_printed() {
+    let mut grid = DamageGrid::new(5, 20, 10);
+    grid.process("\u{ff9e}X".as_bytes());
+
+    assert_eq!(cell_text(&grid, 0, 0), "\u{ff9e}");
+    assert_eq!(cell_text(&grid, 0, 1), "X");
 }
 
 #[test]
 fn dsr_reports_cursor_after_cluster_width_growth() {
     let mut grid = DamageGrid::new(5, 20, 10);
-    grid.process("\u{ff76}\u{ff9e}".as_bytes());
+    grid.process("\u{2601}\u{fe0f}".as_bytes());
     grid.process(b"\x1b[6n");
     let reply = first_reply(&mut grid);
     assert_eq!(
@@ -320,10 +326,10 @@ fn dsr_reports_cursor_after_cluster_width_growth() {
 #[test]
 fn cluster_width_growth_marks_the_grown_span_dirty() {
     let mut grid = DamageGrid::new(5, 20, 10);
-    grid.process("\u{ff76}".as_bytes());
+    grid.process("\u{2601}".as_bytes());
     drop(grid.dirty_spans());
 
-    grid.process("\u{ff9e}".as_bytes());
+    grid.process("\u{fe0f}".as_bytes());
     let spans = grid.dirty_spans();
     let DirtySpans::Rows(rows) = spans else {
         panic!("expected row-span dirty tracking, got {spans:?}");
@@ -335,7 +341,7 @@ fn cluster_width_growth_marks_the_grown_span_dirty() {
             start_col: 0,
             end_col: 2,
         }],
-        "dakuten growth must dirty both the lead and new continuation"
+        "VS16 growth must dirty both the lead and new continuation"
     );
 }
 
@@ -343,7 +349,7 @@ fn cluster_width_growth_marks_the_grown_span_dirty() {
 fn final_column_cluster_growth_keeps_deferred_wrap_contract() {
     let mut grid = DamageGrid::new(5, 5, 10);
     grid.process(b"\x1b[1;5H");
-    grid.process("\u{ff76}\u{ff9e}".as_bytes());
+    grid.process("\u{2601}\u{fe0f}".as_bytes());
     grid.process(b"\x1b[6n");
     assert_eq!(
         first_reply(&mut grid),
