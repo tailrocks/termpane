@@ -12,6 +12,9 @@ import tempfile
 
 SOURCE_SHA = "f1c2dfde45bdbe91425af6bb17d80e606703baac"
 PREFIX = "termpane-0.1.1/"
+MAX_FILE = 16 * 1024 * 1024
+MAX_TOTAL = 100 * 1024 * 1024
+MAX_ENTRIES = 100_000
 
 
 def git(source, *args):
@@ -20,8 +23,12 @@ def git(source, *args):
 
 def archive_files(path):
     result = {}
+    total = 0
     with tarfile.open(path, "r:gz") as archive:
         for item in archive:
+            total += item.size
+            if len(result) >= MAX_ENTRIES or item.size > MAX_FILE or total > MAX_TOTAL:
+                raise ValueError("archive exceeds extraction bounds")
             if not item.isfile() or not item.name.startswith(PREFIX):
                 raise ValueError("unexpected archive entry")
             name = item.name[len(PREFIX):]

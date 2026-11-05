@@ -2,14 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import copy
+import gzip
 import hashlib
 import json
 from pathlib import Path
 import subprocess
 import tempfile
+import tarfile
 import unittest
 
 from fixture_receipt import SOURCE_SHA, bounded, git_identity, unique_object, validate_evidence
+from verify_archive import MAX_FILE, archive_files
 
 CANDIDATE = "b" * 40
 
@@ -55,6 +58,16 @@ class FixtureReceiptTest(unittest.TestCase):
                 validate_evidence(evidence, CANDIDATE, *inputs)
         with self.assertRaises(ValueError):
             validate_evidence({**evidence, "extra": "forged"}, CANDIDATE, supplied, effective, packed, manifest)
+
+    def test_archive_rejects_oversized_entry_before_extraction(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "oversized.crate"
+            entry = tarfile.TarInfo("termpane-0.1.1/oversized")
+            entry.size = MAX_FILE + 1
+            with gzip.open(path, "wb") as output:
+                output.write(entry.tobuf())
+            with self.assertRaises(ValueError):
+                archive_files(path)
 
     def test_real_git_checkout_must_match_commit_and_be_clean(self):
         with tempfile.TemporaryDirectory() as temp:
