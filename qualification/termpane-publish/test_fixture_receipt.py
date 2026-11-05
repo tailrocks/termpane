@@ -4,6 +4,7 @@
 import copy
 import gzip
 import hashlib
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -58,6 +59,17 @@ class FixtureReceiptTest(unittest.TestCase):
                 validate_evidence(evidence, CANDIDATE, *inputs)
         with self.assertRaises(ValueError):
             validate_evidence({**evidence, "extra": "forged"}, CANDIDATE, supplied, effective, packed, manifest)
+
+    def test_archive_rejects_parent_traversal_entries(self):
+        for name in ("../escape", "..", "../../outside"):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temp:
+                archive = Path(temp) / "traversal.crate"
+                with tarfile.open(archive, "w:gz") as output:
+                    entry = tarfile.TarInfo("termpane-0.1.1/" + name)
+                    entry.size = 1
+                    output.addfile(entry, io.BytesIO(b"x"))
+                with self.assertRaises(ValueError):
+                    archive_files(archive)
 
     def test_archive_rejects_oversized_entry_before_extraction(self):
         with tempfile.TemporaryDirectory() as temp:
