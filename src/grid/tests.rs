@@ -348,7 +348,7 @@ fn cluster_width_growth_marks_the_grown_span_dirty() {
 #[test]
 fn final_column_cluster_growth_keeps_deferred_wrap_contract() {
     let mut grid = DamageGrid::new(5, 5, 10);
-    grid.process(b"\x1b[1;5H");
+    grid.process(b"\x1b[1;4H");
     grid.process("\u{2601}\u{fe0f}".as_bytes());
     grid.process(b"\x1b[6n");
     assert_eq!(
