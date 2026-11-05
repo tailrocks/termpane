@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 Alexey Zhokhov
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
-: "${CANDIDATE_SHA:?}" "${SOURCE_SHA:?}" "${CANDIDATE_PR:?}"
+: "${CANDIDATE_SHA:?}" "${SOURCE_SHA:?}" "${CANDIDATE_PR:?}" "${VELNOR_REHEARSAL_OUTPUT:?}"
 umask 077
 unset GH_TOKEN GITHUB_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_RUNTIME_TOKEN
 
@@ -90,6 +90,19 @@ docker run --platform linux/amd64 --rm --network none \
   -e PATH=/tools:/usr/local/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
   "$image" python3 /fixture/drive.py coordinate
 
+for input in "$runner/coordinate/fixture-package/package/termpane-0.1.1.crate" \
+  "$RUNNER_TEMP/intent.toml" "$workspace/final-coordinate/.github/velnor-release-intent.toml" \
+  "$runner/coordinate/native-evidence.json" "$assets/release-manifest.json"; do
+  test ! -L "$input" && test -f "$input"
+done
+
+python3 - "$VELNOR_REHEARSAL_OUTPUT" <<'PYTHON'
+import os
+import sys
+fd = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+os.close(fd)
+PYTHON
+
 docker run --platform linux/amd64 --rm --network none \
   -v "$RUNNER_TEMP/source:/source:ro" -v "$RUNNER_TEMP/cargo-cache:/cargo" \
   -v "$runner/coordinate/fixture-package/package/termpane-0.1.1.crate:/archive.crate:ro" \
@@ -100,6 +113,8 @@ docker run --platform linux/amd64 --rm --network none \
   -v "$workspace/final-coordinate/.github/velnor-release-intent.toml:/effective.toml:ro" \
   -v "$runner/coordinate/native-evidence.json:/native-evidence.json:ro" \
   -v "$assets/release-manifest.json:/manifest.json:ro" \
+  -v "$VELNOR_REHEARSAL_OUTPUT:/bundle.tar" \
+  -e VELNOR_RECEIPT_BUNDLE=/bundle.tar \
   -e CARGO_HOME=/cargo -e RUSTUP_TOOLCHAIN=1.97.1 -w /source \
   rust@sha256:b1b3c9c0d921d7fa0a6d1f9ec7e4eab87f8c8ec97644c3d791450f131dec813f \
   python3 /fixture_receipt.py /native-evidence.json /archive.crate /source /candidate /intent.toml /effective.toml /manifest.json "$CANDIDATE_SHA" "$SOURCE_SHA" "$CANDIDATE_PR"

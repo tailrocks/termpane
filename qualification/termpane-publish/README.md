@@ -47,6 +47,13 @@ verifier must authenticate the exact successful workflow run and executor job,
 verify the inputs and review state independently, and reject missing, duplicate,
 stale, malformed, or inconsistent markers.
 
+When the generated runner enables its output handoff, the wrapper writes a
+bounded untrusted tar containing exactly `receipt.json`, `fixture-evidence.json`,
+`supplied-intent.toml`, `effective-intent.toml`, `generator-manifest.json`, and
+`termpane-0.1.1.crate`. It includes no credentials or logs. The trusted verifier
+must independently check the bundle contents and their hashes; artifact custody
+proves only which bytes the rehearsal supplied.
+
 After the authorized Velnor release exists, regenerate and review the actual
 termpane release intent and workflow with the published generator. Compare the
 actual intent with this provisional draft, then update and rerun the reviewed

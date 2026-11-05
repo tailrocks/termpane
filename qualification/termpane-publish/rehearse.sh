@@ -3,9 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 umask 077
-: "${RUNNER_TEMP:?}" "${SOURCE_SHA:?}" "${CANDIDATE_PR:?}" "${CANDIDATE_SHA:?}"
+: "${RUNNER_TEMP:?}" "${SOURCE_SHA:?}" "${CANDIDATE_PR:?}" "${CANDIDATE_SHA:?}" "${VELNOR_REHEARSAL_OUTPUT:?}"
 [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ && "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ && "$CANDIDATE_PR" =~ ^[1-9][0-9]*$ ]]
 [[ "$(pwd -P)" = "$RUNNER_TEMP/source" ]]
+[[ "$VELNOR_REHEARSAL_OUTPUT" = "$RUNNER_TEMP/rehearsal-output.tar" ]]
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 RUSTUP_AUTO_INSTALL=0
 unset GH_TOKEN GITHUB_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_RUNTIME_TOKEN
 readonly approved_source=f1c2dfde45bdbe91425af6bb17d80e606703baac

@@ -12,7 +12,7 @@ import tempfile
 import tarfile
 import unittest
 
-from fixture_receipt import SOURCE_SHA, bounded, git_identity, unique_object, validate_evidence
+from fixture_receipt import SOURCE_SHA, bounded, git_identity, unique_object, validate_evidence, write_bundle
 from verify_archive import MAX_FILE, archive_files
 
 CANDIDATE = "b" * 40
@@ -71,6 +71,22 @@ class FixtureReceiptTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     archive_files(archive)
 
+    def test_captured_archive_bytes_ignore_later_path_replacement(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "package.crate"
+            with tarfile.open(path, "w:gz") as output:
+                entry = tarfile.TarInfo("termpane-0.1.1/file")
+                entry.size = 4
+                output.addfile(entry, io.BytesIO(b"good"))
+            captured = bounded(path, 1024 * 1024)
+            with tarfile.open(path, "w:gz") as output:
+                entry = tarfile.TarInfo("termpane-0.1.1/../escape")
+                entry.size = 3
+                output.addfile(entry, io.BytesIO(b"bad"))
+            self.assertEqual(archive_files(io.BytesIO(captured)), {"file": b"good"})
+            with self.assertRaises(ValueError):
+                archive_files(path)
+
     def test_archive_rejects_oversized_pax_metadata(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "oversized-pax.crate"
@@ -91,6 +107,34 @@ class FixtureReceiptTest(unittest.TestCase):
                 output.write(entry.tobuf())
             with self.assertRaises(ValueError):
                 archive_files(path)
+
+    def test_bundle_contains_only_exact_input_bytes_and_rejects_unsafe_destination(self):
+        evidence, supplied, effective, packed, manifest = fixture()
+        files = {"receipt.json": b"receipt", "fixture-evidence.json": json.dumps(evidence).encode(),
+                 "supplied-intent.toml": supplied, "effective-intent.toml": effective,
+                 "generator-manifest.json": manifest, "termpane-0.1.1.crate": packed}
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            output = root / "output.tar"
+            output.touch(mode=0o600)
+            write_bundle(output, files)
+            with tarfile.open(output, "r:") as archive:
+                self.assertEqual(set(archive.getnames()), set(files))
+                self.assertTrue(all(entry.isfile() for entry in archive))
+                for name, value in files.items():
+                    self.assertEqual(archive.extractfile(name).read(), value)
+            with self.assertRaises(ValueError):
+                write_bundle(output, files)
+            link = root / "link"
+            link.symlink_to(output)
+            with self.assertRaises(OSError):
+                write_bundle(link, files)
+            empty = root / "empty.tar"
+            empty.touch()
+            with self.assertRaises(ValueError):
+                write_bundle(empty, {**files, "../escape": b"x"})
+            with self.assertRaises(ValueError):
+                write_bundle(empty, {**files, "termpane-0.1.1.crate": b"x" * (100 * 1024 * 1024)})
 
     def test_real_git_checkout_must_match_commit_and_be_clean(self):
         with tempfile.TemporaryDirectory() as temp:
