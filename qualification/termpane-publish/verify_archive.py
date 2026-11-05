@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Alexey Zhokhov
 # SPDX-License-Identifier: Apache-2.0
 
+import gzip
 import json
 import os
 import pathlib
@@ -15,6 +16,7 @@ PREFIX = "termpane-0.1.1/"
 MAX_FILE = 16 * 1024 * 1024
 MAX_TOTAL = 100 * 1024 * 1024
 MAX_ENTRIES = 100_000
+MAX_TAR = 16 * 1024 * 1024
 
 
 def git(source, *args):
@@ -24,18 +26,26 @@ def git(source, *args):
 def archive_files(path):
     result = {}
     total = 0
-    with tarfile.open(path, "r:gz") as archive:
-        for item in archive:
-            total += item.size
-            if len(result) >= MAX_ENTRIES or item.size > MAX_FILE or total > MAX_TOTAL:
-                raise ValueError("archive exceeds extraction bounds")
-            if not item.isfile() or not item.name.startswith(PREFIX):
-                raise ValueError("unexpected archive entry")
-            name = item.name[len(PREFIX):]
-            if (not name or name.startswith("/") or any(part in (".", "..") for part in name.split("/"))
-                    or posixpath.normpath(name) != name or name in result):
-                raise ValueError("invalid or duplicate archive path")
-            result[name] = archive.extractfile(item).read()
+    with tempfile.TemporaryFile() as tar_bytes, gzip.open(path, "rb") as compressed:
+        decompressed = 0
+        while chunk := compressed.read(64 * 1024):
+            decompressed += len(chunk)
+            if decompressed > MAX_TAR:
+                raise ValueError("decompressed archive exceeds limit")
+            tar_bytes.write(chunk)
+        tar_bytes.seek(0)
+        with tarfile.open(fileobj=tar_bytes, mode="r:") as archive:
+            for item in archive:
+                total += item.size
+                if len(result) >= MAX_ENTRIES or item.size > MAX_FILE or total > MAX_TOTAL:
+                    raise ValueError("archive exceeds extraction bounds")
+                if not item.isfile() or not item.name.startswith(PREFIX):
+                    raise ValueError("unexpected archive entry")
+                name = item.name[len(PREFIX):]
+                if (not name or name.startswith("/") or any(part in (".", "..") for part in name.split("/"))
+                        or posixpath.normpath(name) != name or name in result):
+                    raise ValueError("invalid or duplicate archive path")
+                result[name] = archive.extractfile(item).read()
     return result
 
 
