@@ -36,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Widening the grid left a wide cell at the old last column without its
+  continuation: a cluster that grew to two columns in the last column (`U+2601
+  U+FE0F`) kept its lead flag and the new column beside it stayed blank. The
+  continuation cell is now added, so a wide lead is always paired.
 - `CSI Ps L`, `M`, `S` and `T` with a huge count (`CSI 65535 L`) ran one pass
   per unit of the count, so eight bytes held a pane for about a tenth of a
   second in a debug build. The count is now clamped to the rows from the cursor to the bottom

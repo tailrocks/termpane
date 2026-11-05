@@ -445,10 +445,11 @@ impl RowStore {
 
         if width_changed {
             for row in &mut self.rows {
+                let old_cols = row.len();
                 row.resize(target_cols, Cell::default());
-                // Truncation can drop a wide char's continuation cell; blank
-                // the orphaned lead left behind in the new last column.
-                if let Some(last) = row.last_mut()
+                if target_cols > old_cols {
+                    complete_wide_lead(row, old_cols);
+                } else if let Some(last) = row.last_mut()
                     && last.is_wide
                 {
                     *last = Cell::default();

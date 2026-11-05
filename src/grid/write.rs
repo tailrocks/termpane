@@ -44,6 +44,27 @@ pub fn set_cell_width(row: &mut [Cell], col: usize, width: u16, attrs: Attrs, co
     }
 }
 
+/// Give a wide lead in `row[len - 1]` the continuation it lacked at the old
+/// right margin, in the cell just past it.
+pub(crate) fn complete_wide_lead(row: &mut [Cell], len: usize) {
+    let Some(lead) = len.checked_sub(1).and_then(|col| row.get(col)) else {
+        return;
+    };
+    if !lead.is_wide {
+        return;
+    }
+    let continuation = Cell {
+        contents: compact_str::CompactString::new(""),
+        is_wide: false,
+        is_wide_continuation: true,
+        attrs: lead.attrs.clone(),
+        hyperlink: lead.hyperlink.clone(),
+    };
+    if let Some(slot) = row.get_mut(len) {
+        *slot = continuation;
+    }
+}
+
 /// Erase `row[start..end]` with a (possibly BCE-colored) blank, also blanking
 /// a wide-char partner split by the erase boundary: a continuation at `start`
 /// orphans its lead at `start - 1`, and a wide lead at `end - 1` orphans its
