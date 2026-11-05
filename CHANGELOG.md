@@ -36,6 +36,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `state_diff` and `contents_diff` left the cell to the right of a narrowed
+  cluster (`U+231A U+FE0E`) wrong when it did not change. The replay prints the
+  wide emoji first, which overwrites that cell, then narrows it to a default
+  cell, so a blank cell with a background color came back default. The diff now
+  repaints the cell after every cluster that narrows on replay.
 - A text-presentation selector (`U+FE0E`) that narrows a wide emoji written at
   the right margin left the cursor on the pending-wrap column while the cluster
   no longer reached the margin, so `state_formatted` replayed to a different
