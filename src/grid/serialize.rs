@@ -590,36 +590,22 @@ fn write_row_diff(
         profile,
     } = *ctx;
     let mut prev_was_wide = false;
-    let mut repaint_next = false;
 
     let first_cell = &cells[0];
-    let prev_first_cell = &prev_cells[0];
-    if wrapping
+    let wrap_redraw = wrapping
         && !prev_wrapping
-        && first_cell == prev_first_cell
+        && *first_cell == prev_cells[0]
         && prev_pos.row + 1 == row_idx
         && prev_pos.col >= cols
-        && !prev_row.is_some_and(zwj_wrap_hazard)
-    {
-        // The previous row now wraps into this one: perform the pending wrap
-        // by redrawing the first cell, then back onto the row start.
+        && !prev_row.is_some_and(zwj_wrap_hazard);
+    let mut repaint_next = wrap_redraw && first_cell.has_contents();
+    if wrap_redraw && !first_cell.has_contents() {
         if prev_attrs != first_cell.attrs {
             write_attrs_diff(out, &first_cell.attrs, &prev_attrs);
             prev_attrs = first_cell.attrs.clone();
         }
-        let mut contents = prev_first_cell.contents();
-        let need_erase = contents.is_empty();
-        if need_erase {
-            contents = " ";
-        }
-        out.extend_from_slice(contents.as_bytes());
-        out.push(0x08);
-        if prev_first_cell.is_wide {
-            out.push(0x08);
-        }
-        if need_erase {
-            write_erase_chars(out, 1);
-        }
+        out.extend_from_slice(b" \x08");
+        write_erase_chars(out, 1);
         prev_pos = Pos {
             row: row_idx,
             col: 0,

@@ -260,3 +260,20 @@ fn a_narrowed_wide_emoji_repaints_the_cell_to_its_right_in_a_diff() {
         replayed.dump().to_text(),
     );
 }
+
+#[test]
+fn a_hard_to_soft_wrap_transition_repaints_the_cell_after_a_narrowed_first_cell() {
+    let mut before = DamageGrid::new(2, 3, 5);
+    before.process("\x1b[2;1H\u{231a}\u{fe0e}\x1b[44m\x1b[K\x1b[0m\x1b[Habc".as_bytes());
+    let mut replayed = DamageGrid::new(2, 3, 5);
+    replayed.process(&before.state_formatted());
+    assert!(before.state_eq(&replayed));
+
+    let mut after = DamageGrid::new(2, 3, 5);
+    after.process("abc\u{231a}\u{fe0e}\x1b[44m\x1b[K\x1b[0m".as_bytes());
+    assert_eq!(after.dump().to_text(), before.dump().to_text());
+    replayed.process(&after.state_diff(&replayed));
+
+    assert_eq!(replayed.dump().cell(1, 1), after.dump().cell(1, 1));
+    assert!(after.state_eq(&replayed));
+}
