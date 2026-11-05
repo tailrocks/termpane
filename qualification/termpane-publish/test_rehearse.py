@@ -17,7 +17,8 @@ class RehearsalWrapperTest(unittest.TestCase):
             source = root / "source"
             source.mkdir()
             env = dict(os.environ, RUNNER_TEMP=temp, SOURCE_SHA="a" * 40,
-                       CANDIDATE_PR="1;bad", CANDIDATE_SHA="b" * 40)
+                       CANDIDATE_PR="1;bad", CANDIDATE_SHA="b" * 40,
+                       VELNOR_REHEARSAL_OUTPUT=str(root / "rehearsal-output.tar"))
             result = subprocess.run(["bash", str(SCRIPT)], cwd=source, env=env, capture_output=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertTrue(source.is_dir())
