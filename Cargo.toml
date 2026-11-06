@@ -3,12 +3,12 @@
 
 [package]
 name = "termpane"
-version = "0.1.1"
-edition = "2024"
-rust-version = "1.99"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 authors = ["Alexey Zhokhov <alexey@zhokhov.com>"]
 description = "Deterministic terminal screen-state emulator: a VT-parsed cell grid with typed attributes, scrollback, snapshots, and damage tracking."
-license = "Apache-2.0"
+license.workspace = true
 repository = "https://github.com/tailrocks/termpane"
 homepage = "https://github.com/tailrocks/termpane"
 keywords = ["terminal", "vt100", "ansi", "emulator", "screen"]
@@ -20,6 +20,12 @@ keywords = ["terminal", "vt100", "ansi", "emulator", "screen"]
 
 [workspace]
 resolver = "3"
+
+[workspace.package]
+version = "0.1.1"
+edition = "2024"
+rust-version = "1.99"
+license = "Apache-2.0"
 
 [features]
 default = []
@@ -104,6 +110,8 @@ unused = { level = "deny", priority = -1 }
 unused_imports = "deny"
 unused_variables = "deny"
 unused_must_use = "deny"
+unexpected_cfgs = "deny"
+unfulfilled_lint_expectations = "deny"
 dead_code = "deny"
 unreachable_pub = "deny"
 unsafe_op_in_unsafe_fn = "deny"
