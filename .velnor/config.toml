@@ -21,6 +21,7 @@ default_shards = 1
 ignore = []
 
 [stacks.rust]
+toolchain_source = "mise"
 compile_driver = "mbx"
 test_runner = "cargo_nextest"
 

@@ -8,3 +8,5 @@ edition = "2024"
 # This aligns formatting decisions (trailing commas, let-else indentation, etc.)
 # with the latest Rust style recommendations.
 style_edition = "2024"
+
+newline_style = "Unix"
