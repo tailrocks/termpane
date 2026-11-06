@@ -13,6 +13,10 @@ steps {
       command = "cargo fmt --all --check"
     }
   }
+  ["cargo-fmt-fuzz"] {
+    glob = List("fuzz/**/*.rs", "fuzz/Cargo.toml", "rustfmt.toml")
+    check = "cargo fmt --manifest-path fuzz/Cargo.toml --all --check"
+  }
   ["cargo-deny"] = (Builtins.cargo_deny) {
     exclude = List("fuzz/**")
   }
