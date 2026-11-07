@@ -35,6 +35,10 @@ These guarantees describe the default model-only build. The optional
 transport features below spawn real processes by design; passive users
 (`default = []`) get zero new dependencies and zero host effects.
 
+## Known divergences from xterm
+
+- **DECSTR and the saved wrap flag**: xterm's soft reset homes the saved cursor but keeps the deferred-wrap flag in the saved state, so a later DECRC restores the top-left cell with a wrap pending. `termpane` stores a deferred wrap as a saved column past the last one, so it cannot hold a wrap at the top-left; DECRC after DECSTR restores the top-left with no wrap pending.
+
 ## Process and PTY transport (optional features)
 
 Unix-only. `process` covers piped children (spawn-params builder, piped
@@ -96,13 +100,13 @@ let dirty = grid.dump_dirty_patch(); // GridPatch: only what changed
 
 ## Requirements
 
-Rust 1.97 or newer (MSRV, pinned by `rust-toolchain.toml`).
+Rust 1.99 or newer (MSRV, pinned by `rust-toolchain.toml`).
 
 ## Verify
 
 ```sh
-cargo nextest run                                        # 161 tests (114 unit + 43 conformance + 4 serialization_proptest)
-cargo nextest run --all-features                         # +2 dhat allocation tests
+cargo nextest run                                        # 215 tests (129 unit + 43 conformance + 7 serialization_proptest + 36 other integration)
+cargo nextest run --all-features                         # 334 tests: adds the process, pty and session suites and the dhat allocation tests
 cargo clippy --all-targets --all-features -- -D warnings
 cargo fuzz run damage_grid_process -- -max_total_time=30 # bounded fuzz smoke
 cargo bench --bench resize_storm -- --quick

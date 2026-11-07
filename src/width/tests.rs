@@ -20,6 +20,8 @@ fn width_oracle_covers_profile_clusters() {
         ("\u{ff76}", 1),
         ("\u{ff76}\u{ff9e}", 2),
         ("\u{ff8a}\u{ff9f}", 2),
+        ("\u{ff9e}", 1),
+        ("\u{ff9f}", 1),
         ("\u{00a1}", 1),
     ];
 
@@ -55,6 +57,15 @@ fn profile_width_stays_aligned_with_ratatui_cell_width() {
             profile.cluster_width(cluster),
             cluster.cell_width().min(2),
             "Ratatui width drift for {cluster:?}"
+        );
+    }
+
+    for lone in ["\u{ff9e}", "\u{ff9f}"] {
+        assert_eq!(profile.cluster_width(lone), 1);
+        assert_eq!(
+            lone.cell_width(),
+            2,
+            "ratatui fixed its mark compensation: move {lone:?} into `clusters`"
         );
     }
 }

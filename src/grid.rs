@@ -16,7 +16,7 @@ pub use parse::*;
 pub use write::*;
 
 use std::{
-    collections::{HashMap, VecDeque, vec_deque},
+    collections::{VecDeque, vec_deque},
     ops::{Index, IndexMut},
     sync::{Arc, Mutex, MutexGuard, OnceLock},
 };
@@ -189,16 +189,6 @@ pub struct DamageGrid {
     last_preserved_block: Option<Vec<Vec<Cell>>>,
     /// Whether ED2 / ED0-at-home saves the cleared rows into scrollback.
     erase_display_policy: EraseDisplayPolicy,
-    /// Active OSC 8 token while writing cells.
-    active_hyperlink_token: u32,
-    /// OSC 8 (id, uri) → internal token mapping.
-    /// Keyed by both id and uri so reusing an id with a different URI allocates
-    /// a fresh token and never repoints earlier cells (hover/click identity).
-    osc8_id_to_token: HashMap<(String, String), u32>,
-    /// Internal token → hyperlink target mapping (immutable once written).
-    hyperlink_targets: HashMap<u32, String>,
-    /// Next hyperlink token to allocate.
-    next_hyperlink_token: u32,
     /// `mode_flags` bundles the mode bools (`alt_screen`, `hide_cursor`, `bracketed_paste`,
     /// `application_cursor`, `focus_events`, `pending_wrap`, `mutated_since_preserve`,
     /// `no_autowrap` (DECAWM off), `application_keypad`, `synchronized_update` (DEC 2026)).
@@ -216,7 +206,8 @@ pub struct DamageGrid {
 
     // ── Current SGR attributes (applied to newly written cells) ───────────────
     current_attrs: Attrs,
-    active_hyperlink: Option<Hyperlink>,
+    active_hyperlink: Option<Arc<Hyperlink>>,
+    recent_hyperlinks: VecDeque<Arc<Hyperlink>>,
 
     // ── Scroll region ─────────────────────────────────────────────────────────
     scroll_top: u16,    // 0-based, inclusive
@@ -298,11 +289,21 @@ pub(crate) fn mouse_encoding_number(encoding: MouseProtocolEncoding) -> u16 {
     }
 }
 
-/// Upper bound on retained OSC 8 hyperlink mappings. OSC content is untrusted
-/// model output; an agent emitting many distinct `id=` hyperlinks would
-/// otherwise grow these maps without bound. On overflow both maps are cleared
-/// together (stale off-screen link hover is lost; memory stays bounded).
-const OSC8_HYPERLINK_CAP: usize = 8192;
+/// Longest OSC 8 URI the grid keeps, in bytes. OSC content is untrusted model
+/// output. The OSC 8 specification asks terminals to support URIs of at least
+/// 2083 bytes, so 8 KiB leaves four times that room for real links while a
+/// cell that holds one costs a pointer, not a copy. A longer URI is refused,
+/// never truncated: a truncated URI names a different target.
+const OSC8_URI_MAX: usize = 8 * 1024;
+
+/// Longest OSC 8 `id=` value the grid keeps, in bytes. The specification
+/// recommends ids of at most 250 bytes.
+const OSC8_ID_MAX: usize = 256;
+
+/// Most recently opened OSC 8 links the grid remembers, so a producer that
+/// reopens the same link before every glyph or span makes its cells share one
+/// copy. Bounds the memory the table itself holds to this many links.
+const OSC8_RECENT_MAX: usize = 8;
 
 /// Ring-backed row storage.
 ///
@@ -387,11 +388,13 @@ impl RowStore {
     }
 
     fn remove(&mut self, index: usize) -> Option<Vec<Cell>> {
-        let row = self.rows.remove(index);
-        if row.is_some() {
-            let _ = self.wraps.remove(index);
-        }
-        row
+        self.remove_with_wrap(index).map(|(row, _wrap)| row)
+    }
+
+    fn remove_with_wrap(&mut self, index: usize) -> Option<(Vec<Cell>, RowWrap)> {
+        let row = self.rows.remove(index)?;
+        let wrap = self.wraps.remove(index).unwrap_or_default();
+        Some((row, wrap))
     }
 
     fn push_back(&mut self, row: Vec<Cell>) {
@@ -442,10 +445,11 @@ impl RowStore {
 
         if width_changed {
             for row in &mut self.rows {
+                let old_cols = row.len();
                 row.resize(target_cols, Cell::default());
-                // Truncation can drop a wide char's continuation cell; blank
-                // the orphaned lead left behind in the new last column.
-                if let Some(last) = row.last_mut()
+                if target_cols > old_cols {
+                    complete_wide_lead(row, old_cols);
+                } else if let Some(last) = row.last_mut()
                     && last.is_wide
                 {
                     *last = Cell::default();
@@ -597,15 +601,12 @@ impl DamageGrid {
             last_print: None,
             last_preserved_block: None,
             erase_display_policy: EraseDisplayPolicy::default(),
-            active_hyperlink_token: 0,
-            osc8_id_to_token: HashMap::new(),
-            hyperlink_targets: HashMap::new(),
-            next_hyperlink_token: 1,
             mode_flags: 0,
             reported_fg,
             reported_bg,
             current_attrs: Attrs::default(),
             active_hyperlink: None,
+            recent_hyperlinks: VecDeque::with_capacity(OSC8_RECENT_MAX),
             scroll_top: 0,
             scroll_bottom: rows.saturating_sub(1),
             scroll_ops: Vec::new(),
@@ -1134,8 +1135,7 @@ impl DamageGrid {
         self.mode_flags &= !SYNCHRONIZED_UPDATE;
         self.text_cursor_enable = None;
         self.scrollback_offset = 0;
-        self.clear_active_hyperlink_state();
-        self.clear_hyperlink_maps();
+        self.active_hyperlink = None;
     }
 
     /// Top of the kitty-keyboard stack (`0` when empty). The capsule
@@ -1159,23 +1159,6 @@ impl DamageGrid {
         } else {
             &mut self.primary
         }
-    }
-
-    fn alloc_hyperlink_token(&mut self, id: &str, uri: &str) -> u32 {
-        let key = (id.to_owned(), uri.to_owned());
-        if let Some(&token) = self.osc8_id_to_token.get(&key) {
-            return token;
-        }
-        if self.osc8_id_to_token.len() >= OSC8_HYPERLINK_CAP {
-            self.clear_hyperlink_maps();
-        }
-        let token = self.next_hyperlink_token;
-        self.next_hyperlink_token = self.next_hyperlink_token.saturating_add(1);
-        if self.next_hyperlink_token == 0 {
-            self.next_hyperlink_token = 1;
-        }
-        self.osc8_id_to_token.insert(key, token);
-        token
     }
 
     fn active_content_row_cells(&self, content_row: usize) -> Option<&[Cell]> {
@@ -1209,25 +1192,12 @@ impl DamageGrid {
             .map(Vec::as_slice)
     }
 
-    /// Resolve a URL target from a content-cell hyperlink id.
-    /// The mapping survives normal clears and scrollback scroll.
+    /// Resolve the hyperlink URI of a content cell. The link belongs to the
+    /// cell, so it survives clears of other cells and scrollback scroll.
     pub fn hyperlink_target_at_content_row(&self, content_row: usize, col: u16) -> Option<&str> {
-        let col = col as usize;
         let cells = self.active_content_row_cells(content_row)?;
-        let token = cells.get(col)?.hyperlink_id;
-        if token == 0 {
-            return None;
-        }
-        self.hyperlink_targets.get(&token).map(String::as_str)
-    }
-
-    fn clear_active_hyperlink_state(&mut self) {
-        self.active_hyperlink_token = 0;
-    }
-
-    fn clear_hyperlink_maps(&mut self) {
-        self.osc8_id_to_token.clear();
-        self.hyperlink_targets.clear();
+        let link = cells.get(col as usize)?.hyperlink.as_ref()?;
+        Some(link.uri.as_str())
     }
 
     /// Write a character at the current cursor position, advance cursor.
@@ -1308,14 +1278,12 @@ impl DamageGrid {
 
         let attrs = self.current_attrs.clone();
         let cols = self.cols;
-        let hyperlink_id = self.active_hyperlink_token;
         let cell = Cell {
             // Phase 4: CompactString stores ch inline (no heap alloc for ASCII + most Unicode).
             contents: compact_str::CompactString::from(&*ch.encode_utf8(&mut [0u8; 4])),
             is_wide: width > 1,
             is_wide_continuation: false,
             attrs: attrs.clone(),
-            hyperlink_id,
             hyperlink: self.active_hyperlink.clone(),
         };
         {
@@ -1328,7 +1296,6 @@ impl DamageGrid {
                     is_wide: false,
                     is_wide_continuation: true,
                     attrs: attrs.clone(),
-                    hyperlink_id,
                     hyperlink,
                 };
             }
@@ -1420,11 +1387,13 @@ impl DamageGrid {
             grid[row][col].hyperlink = hyperlink;
             set_cell_width(&mut grid[row], col, new_width, attrs, cols);
         }
-        if self.cursor_row == row as u16
-            && self.cursor_col == old_cursor_end
-            && self.cursor_col < self.cols
-        {
-            self.cursor_col = (col as u16 + new_width).min(self.cols);
+        if self.cursor_row == row as u16 && self.cursor_col == old_cursor_end {
+            if self.cursor_col < self.cols {
+                self.cursor_col = (col as u16 + new_width).min(self.cols);
+            } else if new_width < old_width {
+                self.cursor_col = col as u16 + new_width;
+                self.mode_flags &= !PENDING_WRAP;
+            }
         }
         if self.cursor_row == row as u16
             && ((self.mode_flags & PENDING_WRAP != 0) || self.cursor_col >= self.cols)
@@ -1449,18 +1418,21 @@ impl DamageGrid {
         true
     }
 
+    fn push_scrollback_row(&mut self, row: Vec<Cell>, wrap: RowWrap) {
+        if self.scrollback.len() >= self.scrollback_limit {
+            self.scrollback.recycle_front();
+        }
+        self.scrollback.push_back_with_wrap(row, wrap);
+    }
+
     /// Scroll the active scroll region up by `n` rows, pushing content to scrollback.
-    #[expect(
-        clippy::excessive_nesting,
-        reason = "Scroll-region scrolling distinguishes full-scroll vs partial-scroll \
-                  branches and within each branch handles scrollback recycling, \
-                  row eviction, and the shift-within-range path. The nested control \
-                  flow is intrinsic to the scroll-region semantics — extracting into \
-                  sub-helpers would re-pass mutable grid + scrollback borrows across \
-                  fn boundaries and obscure the per-region branching."
-    )]
+    ///
+    /// `n` is clamped to the region height, as xterm does, and each row moves
+    /// once: the top row leaves the region and a blank row enters at the
+    /// bottom, so the work is linear in the rows scrolled.
     fn scroll_up(&mut self, n: u16, inserted_wrap: RowWrap) {
         self.mode_flags |= MUTATED_SINCE_PRESERVE;
+        let n = n.min(self.scroll_bottom - self.scroll_top + 1);
         let top = self.scroll_top as usize;
         let bottom = self.scroll_bottom as usize;
         let cols = self.cols;
@@ -1476,53 +1448,20 @@ impl DamageGrid {
             if bottom >= grid_len || top >= bottom {
                 continue;
             }
-            // top == 0 with no bottom margin is the common case (plain line feed
-            // with no DECSTBM region); scrollback only collects primary rows.
             let to_scrollback =
                 (self.mode_flags & ALT_SCREEN == 0) && top == 0 && self.scrollback_limit > 0;
             // Scroll-introduced blank lines use the DEFAULT background, not the
-            // current one — xterm applies back-colour-erase to the explicit
+            // current one: xterm applies back-colour-erase to the explicit
             // erase ops (EL/ED/ECH), never to scroll/insert-line.
-            if top == 0 && bottom + 1 == grid_len {
-                // Full-region scroll: rotate the ring instead of cloning every
-                // visible row. The evicted top row moves straight into
-                // scrollback (no intermediate clone) or is recycled; the new
-                // bottom row is drawn from the arena recycle pool.
-                let blank = self.active_grid().arena.blank_row(cols);
-                let evicted = self.active_grid().pop_front_with_wrap();
-                if let Some((row, wrap)) = evicted {
-                    if to_scrollback {
-                        if self.scrollback.len() >= self.scrollback_limit {
-                            self.scrollback.recycle_front();
-                        }
-                        self.scrollback.push_back_with_wrap(row, wrap);
-                    } else {
-                        self.active_grid().arena.recycle(row);
-                    }
-                }
-                self.active_grid().push_back_with_wrap(blank, inserted_wrap);
-            } else {
-                // Partial scroll region (DECSTBM margins) or a non-zero top:
-                // the ring cannot rotate without disturbing rows outside the
-                // region, so shift within range.
-                if to_scrollback {
-                    let row = self.primary[0].clone();
-                    let wrap = self.primary.wrap(0).unwrap_or_default();
-                    if self.scrollback.len() >= self.scrollback_limit {
-                        self.scrollback.recycle_front();
-                    }
-                    self.scrollback.push_back_with_wrap(row, wrap);
-                }
-                let grid = self.active_grid();
-                for r in top..bottom {
-                    grid[r] = grid[r + 1].clone();
-                    if let Some(next_wrap) = grid.wrap(r + 1) {
-                        grid.wraps[r] = next_wrap;
-                    }
-                }
-                grid[bottom] = blank_row(cols);
-                grid.wraps[bottom] = inserted_wrap;
+            let blank = self.active_grid().arena.blank_row(cols);
+            let evicted = self.active_grid().remove_with_wrap(top);
+            match evicted {
+                Some((row, wrap)) if to_scrollback => self.push_scrollback_row(row, wrap),
+                Some((row, _wrap)) => self.active_grid().arena.recycle(row),
+                None => {}
             }
+            self.active_grid()
+                .insert_with_wrap(bottom, blank, inserted_wrap);
         }
         for r in top as u16..=bottom as u16 {
             self.dirty.mark_row(r);
@@ -1627,6 +1566,13 @@ impl DamageGrid {
         self.last_print = None;
         if self.cursor_col >= self.cols {
             self.cursor_col = self.cols.saturating_sub(1);
+        }
+    }
+
+    fn restore_autowrap(&mut self) {
+        if self.mode_flags & NO_AUTOWRAP != 0 {
+            self.clear_pending_wrap();
+            self.mode_flags &= !NO_AUTOWRAP;
         }
     }
 
@@ -1851,43 +1797,38 @@ impl DamageGrid {
             (Some(8), _) => {
                 let id = params
                     .get(1)
-                    .and_then(|b| std::str::from_utf8(b).ok())
-                    .unwrap_or("")
-                    .trim_start_matches("id=")
-                    .to_owned();
+                    .and_then(|bytes| std::str::from_utf8(bytes).ok())
+                    .map(|param| param.trim_start_matches("id="))
+                    .filter(|id| id.len() <= OSC8_ID_MAX);
                 let uri = params
                     .get(2)
-                    .and_then(|b| std::str::from_utf8(b).ok())
-                    .unwrap_or("")
-                    .to_owned();
-                if uri.is_empty() {
-                    self.clear_active_hyperlink_state();
-                } else {
-                    let token = self.alloc_hyperlink_token(&id, &uri);
-                    self.active_hyperlink_token = token;
-                    if self.hyperlink_targets.len() >= OSC8_HYPERLINK_CAP {
-                        self.clear_hyperlink_maps();
-                    }
-                    // Targets are immutable once written: (id,uri) keying means
-                    // a fresh token is allocated on URI change, so insert never
-                    // overwrites an existing token with a different URI.
-                    debug_assert!(
-                        self.hyperlink_targets
-                            .get(&token)
-                            .is_none_or(|existing| existing == &uri),
-                        "hyperlink token target must be immutable"
-                    );
-                    self.hyperlink_targets
-                        .entry(token)
-                        .or_insert_with(|| uri.clone());
-                }
-                // OSC 8 is modeled as cell metadata (both the interned token for
-                // hover lookup and the inline `Hyperlink` the renderer reads) and
-                // deliberately NOT re-emitted as raw passthrough.
-                self.active_hyperlink = (!uri.is_empty()).then_some(Hyperlink { id, uri });
+                    .filter(|bytes| bytes.len() <= OSC8_URI_MAX)
+                    .and_then(|bytes| std::str::from_utf8(bytes).ok())
+                    .filter(|uri| !uri.is_empty());
+                self.active_hyperlink = id.zip(uri).map(|(id, uri)| self.intern_hyperlink(id, uri));
             }
             _ => {}
         }
+    }
+
+    fn intern_hyperlink(&mut self, id: &str, uri: &str) -> Arc<Hyperlink> {
+        if let Some(position) = self
+            .recent_hyperlinks
+            .iter()
+            .position(|link| link.id == id && link.uri == uri)
+        {
+            self.recent_hyperlinks.make_contiguous()[..=position].rotate_right(1);
+            return Arc::clone(&self.recent_hyperlinks[0]);
+        }
+        let link = Arc::new(Hyperlink {
+            id: id.to_owned(),
+            uri: uri.to_owned(),
+        });
+        if self.recent_hyperlinks.len() == OSC8_RECENT_MAX {
+            self.recent_hyperlinks.pop_back();
+        }
+        self.recent_hyperlinks.push_front(Arc::clone(&link));
+        link
     }
 }
 
@@ -2047,20 +1988,14 @@ impl DamageGrid {
             // Mode 1049: save cursor before entering alt screen, restore after leaving.
             47 | 1047 => self.set_alt_screen(enabled),
             1049 => {
-                // The 1049 enter/exit moves the cursor (home on enter, saved
-                // cursor on exit): break cluster continuation.
-                self.last_print = None;
                 if enabled {
                     self.saved_cursor_row = self.cursor_row;
                     self.saved_cursor_col = self.cursor_col;
                     self.set_alt_screen(true);
-                    self.cursor_row = 0;
-                    self.cursor_col = 0;
+                    self.clear_pending_wrap();
                 } else {
                     self.set_alt_screen(false);
-                    self.cursor_row = self.saved_cursor_row;
-                    self.cursor_col = self.saved_cursor_col;
-                    self.clamp_cursor();
+                    self.restore_saved_cursor();
                     // Reset kitty keyboard stack on alt-screen exit: programs in
                     // the alt screen may not clean up their keyboard mode stack,
                     // so pop all pushed levels and emit one reset per level so
@@ -2141,7 +2076,7 @@ impl DamageGrid {
         } else {
             self.mode_flags &= !ALT_SCREEN;
         }
-        self.clear_active_hyperlink_state();
+        self.active_hyperlink = None;
         self.dirty.mark_all();
     }
 }

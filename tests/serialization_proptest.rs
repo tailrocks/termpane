@@ -25,6 +25,9 @@ fn arb_piece() -> impl Strategy<Value = Vec<u8>> {
             "👨\u{200d}👩".as_bytes().to_vec(),
             "\u{200d}👧".as_bytes().to_vec(),
             "x\u{200d}".as_bytes().to_vec(),
+            "\u{231a}".as_bytes().to_vec(),
+            "\u{231a}\u{fe0e}".as_bytes().to_vec(),
+            "\u{fe0e}".as_bytes().to_vec(),
         ]),
         3 => (0u16..=60).prop_map(|n| format!("\x1b[{n}m").into_bytes()),
         1 => prop::sample::select(vec![
@@ -223,4 +226,54 @@ proptest! {
         prop_assert_eq!(replayed.hide_cursor(), grid.hide_cursor());
         prop_assert_eq!(replayed.cursor_style(), grid.cursor_style());
     }
+}
+
+#[test]
+fn a_text_presentation_selector_after_a_wide_emoji_at_the_margin_replays_the_cursor() {
+    let mut grid = DamageGrid::new(3, 2, 5);
+    grid.process("\u{231a}\x08\u{fe0e}\x1b[9C\x1b[2G".as_bytes());
+    assert_eq!(grid.cursor_position(), (0, 1));
+
+    let mut replayed = DamageGrid::new(3, 2, 5);
+    replayed.process(&grid.state_formatted());
+
+    assert_eq!(replayed.cursor_position(), (0, 1));
+    assert!(grid.state_eq(&replayed));
+}
+
+#[test]
+fn a_narrowed_wide_emoji_repaints_the_cell_to_its_right_in_a_diff() {
+    let mut grid = DamageGrid::new(2, 3, 5);
+    grid.process(b"\x1b[44m\x1b[J");
+    let mut replayed = DamageGrid::new(2, 3, 5);
+    replayed.process(&grid.state_formatted());
+    assert!(grid.state_eq(&replayed));
+
+    grid.process("\u{231a}\u{fe0e}\x1b[?J\x1b[0m".as_bytes());
+    let diff = grid.state_diff(&replayed);
+    replayed.process(&diff);
+
+    assert!(
+        grid.state_eq(&replayed),
+        "state: {:?}\nreplayed: {:?}",
+        grid.dump().to_text(),
+        replayed.dump().to_text(),
+    );
+}
+
+#[test]
+fn a_hard_to_soft_wrap_transition_repaints_the_cell_after_a_narrowed_first_cell() {
+    let mut before = DamageGrid::new(2, 3, 5);
+    before.process("\x1b[2;1H\u{231a}\u{fe0e}\x1b[44m\x1b[K\x1b[0m\x1b[Habc".as_bytes());
+    let mut replayed = DamageGrid::new(2, 3, 5);
+    replayed.process(&before.state_formatted());
+    assert!(before.state_eq(&replayed));
+
+    let mut after = DamageGrid::new(2, 3, 5);
+    after.process("abc\u{231a}\u{fe0e}\x1b[44m\x1b[K\x1b[0m".as_bytes());
+    assert_eq!(after.dump().to_text(), before.dump().to_text());
+    replayed.process(&after.state_diff(&replayed));
+
+    assert_eq!(replayed.dump().cell(1, 1), after.dump().cell(1, 1));
+    assert!(after.state_eq(&replayed));
 }

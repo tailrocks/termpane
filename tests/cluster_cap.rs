@@ -121,15 +121,15 @@ fn text(grid: &DamageGrid, row: u16, col: u16) -> String {
 }
 
 #[test]
-fn a_soft_reset_at_the_margin_leaves_the_cursor_on_the_last_cell() {
+fn a_soft_reset_at_the_margin_keeps_the_deferred_wrap_for_the_next_printable() {
     let mut grid = DamageGrid::new(2, 10, 0);
     grid.process("\x1b[1;10Ha\x1b[!pb\u{301}".as_bytes());
+    assert_eq!(text(&grid, 0, 9), "a");
     assert_eq!(
-        text(&grid, 0, 9),
+        text(&grid, 1, 0),
         "b\u{301}",
         "the printable is not dropped"
     );
-    assert_eq!(text(&grid, 1, 0), "");
 }
 
 #[test]

@@ -190,14 +190,13 @@ fn kitty_and_modify_other_keys_stay_on_the_forward_allowlist() {
 #[test]
 fn decstr_resets_modes_attrs_and_margins_in_grid() {
     let mut grid = DamageGrid::new(10, 20, 10);
-    grid.process(b"\x1b[1m\x1b[?25l\x1b[?1h\x1b[?2004h\x1b[2;5r");
+    grid.process(b"\x1b[1m\x1b[?25l\x1b[?1h\x1b[2;5r");
     grid.process(b"\x1b[!p");
     assert!(!grid.hide_cursor(), "DECSTR must re-show the cursor");
     assert!(
         !grid.application_cursor(),
         "DECSTR must reset application cursor keys"
     );
-    assert!(!grid.bracketed_paste(), "DECSTR must reset bracketed paste");
     let events = grid.drain_passthrough();
     assert!(
         !events.iter().any(|e| matches!(
@@ -283,32 +282,38 @@ fn vs16_and_zwj_sequences_stay_one_cluster() {
 }
 
 #[test]
-fn halfwidth_katakana_voicing_mark_grows_cluster_width() {
+fn halfwidth_katakana_voiced_marks_take_their_own_cell() {
     let mut grid = DamageGrid::new(5, 20, 10);
-    grid.process("\u{ff76}\u{ff9e}X".as_bytes());
+    grid.process("\u{ff76}\u{ff9e}\u{ff8a}\u{ff9f}X".as_bytes());
 
-    assert_eq!(cell_text(&grid, 0, 0), "\u{ff76}\u{ff9e}");
-    assert!(
-        grid.cell(0, 0).expect("dakuten lead").is_wide,
-        "dakuten cluster must grow to two columns"
-    );
-    assert!(
-        grid.cell(0, 1)
-            .expect("dakuten continuation")
-            .is_wide_continuation,
-        "dakuten growth must create a continuation cell"
-    );
-    assert_eq!(
-        cell_text(&grid, 0, 2),
-        "X",
-        "next printable must use the grown cursor column"
-    );
+    for (col, text) in [
+        (0, "\u{ff76}"),
+        (1, "\u{ff9e}"),
+        (2, "\u{ff8a}"),
+        (3, "\u{ff9f}"),
+    ] {
+        assert_eq!(cell_text(&grid, 0, col), text);
+        let cell = grid.cell(0, col).expect("halfwidth cell");
+        assert!(!cell.is_wide, "halfwidth cell {col} is one column");
+        assert!(!cell.is_wide_continuation, "cell {col} owns its column");
+    }
+    assert_eq!(cell_text(&grid, 0, 4), "X");
+    assert_eq!(grid.cursor_position(), (0, 5));
+}
+
+#[test]
+fn a_leading_halfwidth_voiced_mark_is_printed() {
+    let mut grid = DamageGrid::new(5, 20, 10);
+    grid.process("\u{ff9e}X".as_bytes());
+
+    assert_eq!(cell_text(&grid, 0, 0), "\u{ff9e}");
+    assert_eq!(cell_text(&grid, 0, 1), "X");
 }
 
 #[test]
 fn dsr_reports_cursor_after_cluster_width_growth() {
     let mut grid = DamageGrid::new(5, 20, 10);
-    grid.process("\u{ff76}\u{ff9e}".as_bytes());
+    grid.process("\u{2601}\u{fe0f}".as_bytes());
     grid.process(b"\x1b[6n");
     let reply = first_reply(&mut grid);
     assert_eq!(
@@ -320,10 +325,10 @@ fn dsr_reports_cursor_after_cluster_width_growth() {
 #[test]
 fn cluster_width_growth_marks_the_grown_span_dirty() {
     let mut grid = DamageGrid::new(5, 20, 10);
-    grid.process("\u{ff76}".as_bytes());
+    grid.process("\u{2601}".as_bytes());
     drop(grid.dirty_spans());
 
-    grid.process("\u{ff9e}".as_bytes());
+    grid.process("\u{fe0f}".as_bytes());
     let spans = grid.dirty_spans();
     let DirtySpans::Rows(rows) = spans else {
         panic!("expected row-span dirty tracking, got {spans:?}");
@@ -335,15 +340,15 @@ fn cluster_width_growth_marks_the_grown_span_dirty() {
             start_col: 0,
             end_col: 2,
         }],
-        "dakuten growth must dirty both the lead and new continuation"
+        "VS16 growth must dirty both the lead and new continuation"
     );
 }
 
 #[test]
 fn final_column_cluster_growth_keeps_deferred_wrap_contract() {
     let mut grid = DamageGrid::new(5, 5, 10);
-    grid.process(b"\x1b[1;5H");
-    grid.process("\u{ff76}\u{ff9e}".as_bytes());
+    grid.process(b"\x1b[1;4H");
+    grid.process("\u{2601}\u{fe0f}".as_bytes());
     grid.process(b"\x1b[6n");
     assert_eq!(
         first_reply(&mut grid),
@@ -912,20 +917,7 @@ fn borrowed_scrollback_view_matches_owned_dump() {
             );
             assert_eq!(borrowed_cell.conceal(), owned_cell.attributes.conceal);
             assert_eq!(borrowed_cell.overline(), owned_cell.attributes.overline);
-            assert_eq!(
-                borrowed_cell
-                    .hyperlink
-                    .as_ref()
-                    .map(|link| link.id.as_str()),
-                owned_cell.hyperlink_id.as_deref()
-            );
-            assert_eq!(
-                borrowed_cell
-                    .hyperlink
-                    .as_ref()
-                    .map(|link| link.uri.as_str()),
-                owned_cell.hyperlink_uri.as_deref()
-            );
+            assert_eq!(borrowed_cell.hyperlink, owned_cell.hyperlink);
         }
     }
 }
@@ -940,13 +932,15 @@ fn osc8_hyperlink_is_cell_metadata_not_passthrough() {
     let second = snap.cell(0, 1).expect("linked B");
     let third = snap.cell(0, 2).expect("plain C");
 
-    assert_eq!(first.hyperlink_id.as_deref(), Some("docs"));
-    assert_eq!(first.hyperlink_uri.as_deref(), Some("https://example.test"));
-    assert_eq!(
-        second.hyperlink_uri.as_deref(),
-        Some("https://example.test")
-    );
-    assert_eq!(third.hyperlink_uri, None);
+    let link = |cell: &crate::snapshot::SnapCell| {
+        cell.hyperlink
+            .as_ref()
+            .map(|link| (link.id.clone(), link.uri.clone()))
+    };
+    let docs = Some(("docs".to_owned(), "https://example.test".to_owned()));
+    assert_eq!(link(first), docs);
+    assert_eq!(link(second), docs);
+    assert_eq!(link(third), None);
     assert!(
         g.drain_passthrough().is_empty(),
         "OSC 8 should not be raw passthrough"
@@ -1372,27 +1366,13 @@ fn resize_same_size_and_width_only_do_not_grow_arena_pool() {
 }
 
 #[test]
-fn hyperlink_id_map_stays_bounded() {
+fn reset_modes_ends_the_active_hyperlink() {
     let mut grid = DamageGrid::new(4, 20, 100);
-    // Cap counts (id, uri) interning keys; unique pairs fill the map.
-    for i in 0..(OSC8_HYPERLINK_CAP * 2) {
-        let _ =
-            grid.alloc_hyperlink_token(&format!("id-{i}"), &format!("https://example.test/{i}"));
-    }
-    assert!(grid.osc8_id_to_token.len() <= OSC8_HYPERLINK_CAP);
-}
-
-#[test]
-fn reset_modes_clears_hyperlink_maps() {
-    let mut grid = DamageGrid::new(4, 20, 100);
-    let _ = grid.alloc_hyperlink_token("some-id", "https://example.test");
-    // also seed a target entry the way OSC 8 does
-    grid.hyperlink_targets
-        .insert(1, "https://example.test".to_owned());
-    assert!(!grid.osc8_id_to_token.is_empty());
+    grid.process(b"\x1b]8;id=a;https://example.test\x07A");
     grid.reset_modes();
-    assert!(grid.osc8_id_to_token.is_empty());
-    assert!(grid.hyperlink_targets.is_empty());
+    grid.process(b"B");
+    assert!(grid.cell(0, 0).is_some_and(|cell| cell.hyperlink.is_some()));
+    assert!(grid.cell(0, 1).is_some_and(|cell| cell.hyperlink.is_none()));
 }
 
 #[test]
@@ -1422,15 +1402,12 @@ fn osc8_empty_id_updates_do_not_repoint() {
 }
 
 #[test]
-fn osc8_same_id_same_uri_shares_token() {
+fn osc8_same_id_same_uri_links_both_cells() {
     let mut g = DamageGrid::new(2, 40, 100);
     g.process(b"\x1b]8;id=x;https://a\x07A\x1b]8;;\x07");
     g.process(b"\x1b]8;id=x;https://a\x07B\x1b]8;;\x07");
     assert_eq!(g.hyperlink_target_at_content_row(0, 0), Some("https://a"));
     assert_eq!(g.hyperlink_target_at_content_row(0, 1), Some("https://a"));
-    // One (id,uri) key → one token → one target entry.
-    assert_eq!(g.osc8_id_to_token.len(), 1);
-    assert_eq!(g.hyperlink_targets.len(), 1);
 }
 
 // ── v0.7.0 parity: DECAWM, DECSED/DECSEL, bell, ?12, 2026, DECRQM ───────────

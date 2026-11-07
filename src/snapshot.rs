@@ -15,10 +15,10 @@
 //! The `dump()` / snapshot-for-observation pattern: avt (MIT), Marcin Kulik /
 //! asciinema project.
 
-use std::collections::vec_deque;
+use std::{collections::vec_deque, sync::Arc};
 
 use crate::{
-    cell::{Attrs, Cell, Color, UnderlineStyle},
+    cell::{Attrs, Cell, Color, Hyperlink, UnderlineStyle},
     damage::{DirtySpan, DirtySpans},
     grid::{RowStore, RowWrap},
 };
@@ -78,10 +78,8 @@ pub struct SnapCell {
     pub underline_style: UnderlineStyle,
     /// Underline color.
     pub underline_color: Color,
-    /// OSC 8 hyperlink id.
-    pub hyperlink_id: Option<String>,
-    /// OSC 8 hyperlink target URI.
-    pub hyperlink_uri: Option<String>,
+    /// OSC 8 hyperlink, shared with the grid cells it came from.
+    pub hyperlink: Option<Arc<Hyperlink>>,
 }
 
 impl SnapCell {
@@ -110,7 +108,7 @@ impl SnapCell {
             && !self.attributes.rapid_blink
             && !self.attributes.conceal
             && !self.attributes.overline
-            && self.hyperlink_uri.is_none()
+            && self.hyperlink.is_none()
     }
 }
 
@@ -136,8 +134,7 @@ impl From<&Cell> for SnapCell {
             },
             underline_style: cell.attrs.underline_style,
             underline_color: cell.attrs.underline_color,
-            hyperlink_id: cell.hyperlink.as_ref().map(|link| link.id.clone()),
-            hyperlink_uri: cell.hyperlink.as_ref().map(|link| link.uri.clone()),
+            hyperlink: cell.hyperlink.clone(),
         }
     }
 }

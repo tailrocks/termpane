@@ -1,0 +1,31 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:best-practices"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^rust-toolchain\\.toml$/"
+      ],
+      "matchStrings": [
+        "channel = \"(?<currentValue>\\d+\\.\\d+\\.\\d+)\""
+      ],
+      "depNameTemplate": "rust-lang/rust",
+      "datasourceTemplate": "github-tags",
+      "extractVersionTemplate": "^(?<version>\\d+\\.\\d+\\.\\d+)$"
+    }
+  ],
+  "prHourlyLimit": 4,
+  "prConcurrentLimit": 4,
+  "branchConcurrentLimit": 4,
+  "commitBody": "Signed-off-by: Renovate Bot <renovate@whitesourcesoftware.com>",
+  "recreateWhen": "always",
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": [
+      "at any time"
+    ]
+  }
+}

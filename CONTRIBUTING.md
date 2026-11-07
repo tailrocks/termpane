@@ -44,10 +44,10 @@ cargo build --benches --locked
 cargo fuzz run --sanitizer none damage_grid_process -- -max_total_time=30
 ```
 
-The MSRV floor (1.97, see `rust-version` in `Cargo.toml`) must keep passing:
+The MSRV floor (1.99, see `rust-version` in `Cargo.toml`) must keep passing:
 
 ```sh
-rustup run 1.97.0 cargo check --locked
+rustup run 1.99.0 cargo check --locked
 ```
 
 ## Publishing
