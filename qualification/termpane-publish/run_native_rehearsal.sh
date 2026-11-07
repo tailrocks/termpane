@@ -57,7 +57,16 @@ docker run --platform linux/amd64 --rm \
 docker run --platform linux/amd64 --rm --network none -v "$RUNNER_TEMP/source:/source:ro" -v "$RUNNER_TEMP/cargo-cache:/cargo" -e CARGO_HOME=/cargo -e RUSTUP_TOOLCHAIN=1.97.1 -w /source rust@sha256:b1b3c9c0d921d7fa0a6d1f9ec7e4eab87f8c8ec97644c3d791450f131dec813f cargo metadata --offline --locked --no-deps --format-version 1 > "$RUNNER_TEMP/native-metadata.json"
 python3 "$control/prepare_registry_inputs.py" "$RUNNER_TEMP/native-metadata.json" "$RUNNER_TEMP/intent.toml" "$inputs"
 cp "$RUNNER_TEMP/intent.toml" "$inputs/intent.toml"
-cp -a "$RUNNER_TEMP/host-cargo/." "$cargo_home/"
+docker run --platform linux/amd64 --rm \
+  -v "$RUNNER_TEMP/candidate:/src:ro" -v "$cargo_home:/cargo" -w /src \
+  -e CARGO_HOME=/cargo -e RUSTUP_TOOLCHAIN=1.99.1-x86_64-unknown-linux-gnu -e RUSTUP_AUTO_INSTALL=0 \
+  "$image" cargo fetch --locked
+# Only Cargo's downloaded registry and Git caches belong in this home.
+# Project configuration is reviewed in the candidate checkout; a writable
+# Cargo-home config or credential file must not survive into the native run.
+find "$cargo_home" -mindepth 1 -maxdepth 1 ! -name registry ! -name git -exec rm -rf -- {} +
+unexpected_cache_entry="$(find "$cargo_home" ! -type f ! -type d -print -quit)"
+test -z "$unexpected_cache_entry"
 mkdir -p "$cargo_home/registry"
 cp -an "$RUNNER_TEMP/cargo-cache/registry/." "$cargo_home/registry/"
 python3 "$control/prepare_offline_registry.py" "$cargo_home" "$RUNNER_TEMP/source" "$inputs/baseline.crate" "$RUNNER_TEMP/native-registry"

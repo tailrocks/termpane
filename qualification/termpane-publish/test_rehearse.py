@@ -37,6 +37,14 @@ class RehearsalWrapperTest(unittest.TestCase):
             self.assertTrue(source.is_dir())
             self.assertFalse((root / "control").exists())
 
+            (source / "untracked").unlink()
+            (source / ".git" / "info" / "exclude").write_text("ignored-control\n")
+            (source / "ignored-control").write_text("unexpected\n")
+            result = subprocess.run(["bash", str(SCRIPT)], cwd=source, env=env, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue(source.is_dir())
+            self.assertFalse((root / "control").exists())
+
     def test_invalid_candidate_is_rejected_before_moving_reviewed_source(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
