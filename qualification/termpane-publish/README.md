@@ -15,6 +15,10 @@ its fixtures and `rehearse.sh` are not a CI gate. The current published
 generator cannot emit the protected rehearsal runner. The generic generator
 change is under review in Velnor; after it is released, configure and generate
 the workflow, then verify the generated files against canonical output.
+The generated caller must verify the checked-out control revision equals the
+dispatch source SHA and that the checkout is clean before invoking any script
+from that checkout. The wrapper repeats those checks before running the other
+control files, but cannot establish the identity of its own already-running code.
 
 The standalone wrapper checks the public candidate PR head, main rules, and CI
 provenance before checkout, before candidate execution, and after the rehearsal.

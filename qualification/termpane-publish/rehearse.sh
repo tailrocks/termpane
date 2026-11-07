@@ -16,6 +16,8 @@ readonly candidate="$RUNNER_TEMP/candidate"
 readonly source="$RUNNER_TEMP/source"
 readonly preview="$RUNNER_TEMP/preview"
 readonly image='rust@sha256:4c4c8ec55be09785e6d6ac45ea9853525a73c15db74009100ac08952e773dfb8'
+test "$(git -C "$source" rev-parse HEAD)" = "$SOURCE_SHA"
+test -z "$(git -C "$source" status --porcelain=v1 --untracked-files=all)"
 mv "$source" "$control"
 cd "$control"
 python3 "$qualification/candidate_admission.py" "$CANDIDATE_SHA" "$CANDIDATE_PR"
@@ -30,7 +32,7 @@ test -z "$(git -C "$source" status --porcelain)"
 git clone --no-local "$source" "$preview"
 git -C "$preview" checkout --detach "$approved_source"
 git -C "$preview" remote set-url origin https://github.com/tailrocks/termpane.git
-mkdir "$RUNNER_TEMP/nextest" "$RUNNER_TEMP/release-plz" "$RUNNER_TEMP/cargo-cache" "$RUNNER_TEMP/host-cargo" "$RUNNER_TEMP/host-home"
+mkdir "$RUNNER_TEMP/nextest" "$RUNNER_TEMP/release-plz" "$RUNNER_TEMP/cargo-cache" "$RUNNER_TEMP/host-cargo" "$RUNNER_TEMP/host-home" "$RUNNER_TEMP/candidate-target" "$RUNNER_TEMP/candidate-output"
 fetch() {
   local url="$1" path="$2" sha="$3"
   curl -fsSL --max-filesize 104857600 --max-redirs 5 --proto-redir '=https' --proto '=https' --tlsv1.2 --connect-timeout 15 --max-time 120 -o "$path" "$url"
@@ -48,19 +50,29 @@ python3 "$qualification/prepare_preview.py" "$preview" "$candidate" "$qualificat
 docker pull --platform linux/amd64 "$image"
 run_candidate_test() {
   docker run --platform linux/amd64 --rm --user "$(id -u):$(id -g)" \
-    -v "$RUNNER_TEMP:$RUNNER_TEMP" -w "$candidate" \
+    -v "$candidate:$candidate:ro" -v "$preview:$preview:ro" \
+    -v "$RUNNER_TEMP/nextest:$RUNNER_TEMP/nextest:ro" \
+    -v "$RUNNER_TEMP/host-cargo:$RUNNER_TEMP/host-cargo" \
+    -v "$RUNNER_TEMP/host-home:$RUNNER_TEMP/host-home" \
+    -v "$RUNNER_TEMP/candidate-target:$RUNNER_TEMP/candidate-target" \
+    -v "$RUNNER_TEMP/candidate-output:$RUNNER_TEMP/candidate-output" -w "$candidate" \
     -e HOME="$RUNNER_TEMP/host-home" -e CARGO_HOME="$RUNNER_TEMP/host-cargo" \
+    -e CARGO_TARGET_DIR="$RUNNER_TEMP/candidate-target" \
     -e RUSTUP_HOME=/usr/local/rustup -e RUSTUP_TOOLCHAIN=1.99.1-x86_64-unknown-linux-gnu -e RUSTUP_AUTO_INSTALL=0 \
-    -e TMPDIR="$RUNNER_TEMP" -e PATH="$RUNNER_TEMP/nextest:/usr/local/cargo/bin:/usr/bin:/bin" \
-    -e VELNOR_TEST_PREVIEW_ROOT="$preview" -e VELNOR_TEST_PREVIEW_OUTPUT="$RUNNER_TEMP/intent.toml" \
-    -e VELNOR_TEST_UPLOAD_INTENT="$RUNNER_TEMP/intent.toml" -e VELNOR_TEST_UPLOAD_PACKAGE=termpane \
-    -e VELNOR_TEST_UPLOAD_OUTPUT="$RUNNER_TEMP/upload.toml" -e VELNOR_TEST_RUST_VERIFIER_INTENT="$RUNNER_TEMP/intent.toml" \
-    -e VELNOR_TEST_RUST_VERIFIER_OUTPUT="$RUNNER_TEMP/rust-verifier.sh" \
+    -e TMPDIR="$RUNNER_TEMP/candidate-output" -e PATH="$RUNNER_TEMP/nextest:/usr/local/cargo/bin:/usr/bin:/bin" \
+    -e VELNOR_TEST_PREVIEW_ROOT="$preview" -e VELNOR_TEST_PREVIEW_OUTPUT="$RUNNER_TEMP/candidate-output/intent.toml" \
+    -e VELNOR_TEST_UPLOAD_INTENT="$RUNNER_TEMP/candidate-output/intent.toml" -e VELNOR_TEST_UPLOAD_PACKAGE=termpane \
+    -e VELNOR_TEST_UPLOAD_OUTPUT="$RUNNER_TEMP/candidate-output/upload.toml" -e VELNOR_TEST_RUST_VERIFIER_INTENT="$RUNNER_TEMP/candidate-output/intent.toml" \
+    -e VELNOR_TEST_RUST_VERIFIER_OUTPUT="$RUNNER_TEMP/candidate-output/rust-verifier.sh" \
     "$image" cargo nextest run --locked -p velnor-actions-orchestrator --lib -E "test($1)" --no-tests fail
 }
 run_candidate_test supplied_consumer_intent_preview
 run_candidate_test supplied_intent_renders_actual_upload_config
 run_candidate_test supplied_intent_renders_rust_verifier
+for output in intent.toml upload.toml rust-verifier.sh; do
+  test ! -L "$RUNNER_TEMP/candidate-output/$output" && test -f "$RUNNER_TEMP/candidate-output/$output"
+  cp "$RUNNER_TEMP/candidate-output/$output" "$RUNNER_TEMP/$output"
+done
 cp "$RUNNER_TEMP/intent.toml" "$RUNNER_TEMP/upload.toml" "$RUNNER_TEMP/release-plz/"
 bash "$qualification/run_native_rehearsal.sh"
 
