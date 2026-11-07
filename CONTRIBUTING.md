@@ -52,4 +52,29 @@ rustup run 1.99.0 cargo check --locked
 
 ## Publishing
 
-Releases are published to crates.io **manually only**, via the `publish.yml` workflow (`workflow_dispatch`, requires typing the crate name as confirmation) or a local `cargo publish` by a maintainer. Tag releases `v*`; the `release.yml` workflow reruns the gates and drafts the GitHub Release from the changelog. No automation publishes to crates.io on tag push.
+**Publishing through Velnor is unavailable until the updated release workflow has
+passed its hosted qualification.** The procedure below describes the intended
+process; it is not an operational runbook yet.
+
+Velnor generates `.github/workflows/release.yml`. Make workflow changes in the
+Velnor configuration and regenerate the workflows; do not edit generated files
+by hand.
+
+For a normal release, review and merge the release-plz release PR. The release
+workflow must establish that the source is the reviewed release PR commit and
+that the required checks passed before publishing. For a recovery release, use
+an explicitly reviewed release intent that names the exact approved source
+commit; do not represent that commit as a release-PR commit.
+
+The intended publishing job uses the protected GitHub `release` environment and crates.io
+trusted publishing via GitHub OIDC. The configured trusted publisher names
+`tailrocks/termpane`, `release.yml`, and `release`. The publishing path for an
+existing crate is intended not to need a stored `CARGO_REGISTRY_TOKEN`. The environment
+and eligible branch or event restrictions must be verified before a release.
+
+Before publication, check crates.io and GitHub for the intended version and
+`termpane-v<version>` tag. After the workflow succeeds, verify that the tag
+points to the approved source, download the published crate, check its registry
+checksum, and compare its contents with the approved source. If a run is
+interrupted, reconcile the registry, tag, and release state before retrying;
+do not infer publication from a skipped or successful workflow alone.
