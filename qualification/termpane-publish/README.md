@@ -19,6 +19,9 @@ The generated caller must verify the checked-out control revision equals the
 dispatch source SHA and that the checkout is clean before invoking any script
 from that checkout. The wrapper repeats those checks before running the other
 control files, but cannot establish the identity of its own already-running code.
+This provisional rehearsal rejects candidate-local Cargo configuration and a
+symlinked `.cargo` directory. Its native dependency fetch uses a fresh Cargo
+home, with Git's system and global configuration disabled.
 
 The standalone wrapper checks the public candidate PR head, main rules, and CI
 provenance before checkout, before candidate execution, and after the rehearsal.

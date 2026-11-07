@@ -48,6 +48,7 @@ docker pull --platform linux/amd64 rust@sha256:b1b3c9c0d921d7fa0a6d1f9ec7e4eab87
 docker run --platform linux/amd64 --rm -v "$source:/source" -v "$RUNNER_TEMP/cargo-cache:/cargo-cache" -e CARGO_HOME=/cargo-cache -e RUSTUP_TOOLCHAIN=1.97.1 -w /source rust@sha256:b1b3c9c0d921d7fa0a6d1f9ec7e4eab87f8c8ec97644c3d791450f131dec813f cargo fetch --locked
 python3 "$qualification/candidate_admission.py" "$CANDIDATE_SHA" "$CANDIDATE_PR"
 python3 "$qualification/prepare_preview.py" "$preview" "$candidate" "$qualification/provisional-config.toml" "$CANDIDATE_SHA"
+bash "$qualification/assert_candidate_cargo_config.sh" "$candidate"
 docker pull --platform linux/amd64 "$image"
 run_candidate_test() {
   docker run --platform linux/amd64 --rm --user "$(id -u):$(id -g)" \

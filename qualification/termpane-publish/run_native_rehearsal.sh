@@ -19,7 +19,7 @@ image='rust@sha256:4c4c8ec55be09785e6d6ac45ea9853525a73c15db74009100ac08952e773d
 source_sha='f1c2dfde45bdbe91425af6bb17d80e606703baac'
 mkdir "$assets" "$tools" "$runner" "$workspace" "$rustup_home" "$cargo_home" "$target" "$RUNNER_TEMP/native-gh-config"
 export GH_CONFIG_DIR="$RUNNER_TEMP/native-gh-config" GH_PROMPT_DISABLED=1
-mkdir -p "$runner/coordinate/velnor/cargo" "$runner/coordinate/velnor-semver"
+mkdir -p "$runner/coordinate/velnor/cargo" "$runner/coordinate/velnor/rustup" "$runner/coordinate/velnor-semver"
 
 fetch() {
   local url="$1" path="$2" sha="$3"
@@ -50,16 +50,18 @@ test -z "$(git -C "$RUNNER_TEMP/source" status --porcelain)"
 docker pull --platform linux/amd64 "$image"
 docker run --platform linux/amd64 --rm -v "$rustup_home:/rustup" -e RUSTUP_HOME=/rustup "$image" rustup toolchain install 1.97.1 --profile minimal --no-self-update
 docker run --platform linux/amd64 --rm \
-  -v "$runner/coordinate:/runner/coordinate" -v "$rustup_home:/runner/coordinate/velnor/rustup" \
+  -v "$runner/coordinate:/runner/coordinate:ro" -v "$rustup_home:/runner/coordinate/velnor/rustup:ro" \
   -v "$RUNNER_TEMP/rust-verifier.sh:/rust-verifier.sh:ro" \
   -e RUNNER_TEMP=/verification -e RUSTUP_HOME=/runner/coordinate/velnor/rustup \
   -e CARGO_HOME=/runner/coordinate/velnor/cargo "$image" bash /rust-verifier.sh
 docker run --platform linux/amd64 --rm --network none -v "$RUNNER_TEMP/source:/source:ro" -v "$RUNNER_TEMP/cargo-cache:/cargo" -e CARGO_HOME=/cargo -e RUSTUP_TOOLCHAIN=1.97.1 -w /source rust@sha256:b1b3c9c0d921d7fa0a6d1f9ec7e4eab87f8c8ec97644c3d791450f131dec813f cargo metadata --offline --locked --no-deps --format-version 1 > "$RUNNER_TEMP/native-metadata.json"
 python3 "$control/prepare_registry_inputs.py" "$RUNNER_TEMP/native-metadata.json" "$RUNNER_TEMP/intent.toml" "$inputs"
 cp "$RUNNER_TEMP/intent.toml" "$inputs/intent.toml"
+bash "$control/assert_candidate_cargo_config.sh" "$RUNNER_TEMP/candidate"
 docker run --platform linux/amd64 --rm \
   -v "$RUNNER_TEMP/candidate:/src:ro" -v "$cargo_home:/cargo" -w /src \
   -e CARGO_HOME=/cargo -e RUSTUP_TOOLCHAIN=1.99.1-x86_64-unknown-linux-gnu -e RUSTUP_AUTO_INSTALL=0 \
+  -e GIT_CONFIG_NOSYSTEM=1 -e GIT_CONFIG_GLOBAL=/dev/null -e GIT_TERMINAL_PROMPT=0 \
   "$image" cargo fetch --locked
 # Only Cargo's downloaded registry and Git caches belong in this home.
 # Project configuration is reviewed in the candidate checkout; a writable

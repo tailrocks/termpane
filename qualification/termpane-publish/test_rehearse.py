@@ -8,9 +8,28 @@ import tempfile
 import unittest
 
 SCRIPT = Path(__file__).with_name("rehearse.sh")
+CONFIG_CHECK = Path(__file__).with_name("assert_candidate_cargo_config.sh")
 
 
 class RehearsalWrapperTest(unittest.TestCase):
+    def test_candidate_cargo_config_is_rejected_before_fetch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            candidate = Path(temp)
+            cargo = candidate / ".cargo"
+            cargo.mkdir()
+            self.assertEqual(subprocess.run(["bash", str(CONFIG_CHECK), temp]).returncode, 0)
+            for name in ("config", "config.toml"):
+                config = cargo / name
+                config.write_text('[build]\nrustc-wrapper = "/tmp/unreviewed"\n')
+                self.assertNotEqual(subprocess.run(["bash", str(CONFIG_CHECK), temp]).returncode, 0)
+                config.unlink()
+                config.symlink_to(candidate / "missing")
+                self.assertNotEqual(subprocess.run(["bash", str(CONFIG_CHECK), temp]).returncode, 0)
+                config.unlink()
+            cargo.rmdir()
+            cargo.symlink_to(candidate / "missing")
+            self.assertNotEqual(subprocess.run(["bash", str(CONFIG_CHECK), temp]).returncode, 0)
+
     def test_wrong_or_dirty_control_checkout_is_rejected_before_use(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
