@@ -105,3 +105,19 @@ kind = "github-scale-set"
 name = "ubuntu-26.04-scale-set"
 labels = ["velnor", "ubuntu-26.04-scale-set"]
 platform = "linux/amd64"
+
+[execution.overrides.rust-termpane]
+profile = "local"
+role = "verification"
+
+[execution.overrides.rust-termpane-full]
+profile = "local"
+role = "verification"
+
+[execution.overrides.rust-termpane-fuzz]
+profile = "local"
+role = "verification"
+
+[execution.overrides.rust-termpane-fuzz-full]
+profile = "local"
+role = "verification"
