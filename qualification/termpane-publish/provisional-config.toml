@@ -1,0 +1,36 @@
+schema = 1
+
+[workflow]
+policy = "consumer-v1"
+default_branch = "main"
+
+[stacks.rust]
+compile_driver = "mbx"
+test_runner = "cargo_nextest"
+
+[[stacks.rust.configurations]]
+name = "default"
+features = ["default"]
+target = "host"
+
+[[stacks.rust.configurations]]
+name = "full"
+features = ["process", "pty"]
+target = "host"
+
+[stacks.rust.release]
+enabled = true
+manifest_path = "Cargo.toml"
+packages = ["termpane"]
+environment = "release"
+authentication = "trusted-publishing"
+registry = "crates-io"
+required_workflow_path = ".github/workflows/ci.yml"
+trusted_reviewer_id = 139017
+release_pr = true
+tag_name = "{{ package }}-v{{ version }}"
+
+[stacks.rust.release.recovery]
+package = "termpane"
+version = "0.1.1"
+source_sha = "f1c2dfde45bdbe91425af6bb17d80e606703baac"
