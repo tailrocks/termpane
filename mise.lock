@@ -37,6 +37,12 @@ checksum_source = "mise-versions"
 url = "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-aarch64-apple-darwin.tar.gz"
 url_api = "https://api.github.com/repos/EmbarkStudios/cargo-deny/releases/assets/471597689"
 
+[tools."aqua:EmbarkStudios/cargo-deny"."platforms.macos-x64"]
+checksum = "sha256:248da7f581724e470071990c088ffc55c811981715f4cbdb258621fb79f8b7a6"
+checksum_source = "mise-versions"
+url = "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/EmbarkStudios/cargo-deny/releases/assets/471598357"
+
 [tools."aqua:EmbarkStudios/cargo-deny"."platforms.windows-x64"]
 checksum = "sha256:975a22143262fd27476d19ee00c7af67978426e40e1dee94eed6bbade1cf87dc"
 checksum_source = "mise-versions"
@@ -78,6 +84,12 @@ checksum_source = "mise-versions"
 url = "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.151/cargo-nextest-0.9.151-universal-apple-darwin.tar.gz"
 url_api = "https://api.github.com/repos/nextest-rs/nextest/releases/assets/703616437"
 
+[tools."aqua:nextest-rs/nextest/cargo-nextest"."platforms.macos-x64"]
+checksum = "sha256:d1d7d025d4bfc9fb154cd76aea3949bd78534829a0589abefa6e5dd4edb135dd"
+checksum_source = "mise-versions"
+url = "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.151/cargo-nextest-0.9.151-universal-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/nextest-rs/nextest/releases/assets/703616437"
+
 [tools."aqua:nextest-rs/nextest/cargo-nextest"."platforms.windows-x64"]
 checksum = "sha256:e51bdb4b5883df48f335381b287378edb244318fac65ae0adaf6b9e69298246b"
 checksum_source = "mise-versions"
@@ -88,6 +100,7 @@ url_api = "https://api.github.com/repos/nextest-rs/nextest/releases/assets/70360
 version = "0.4.3"
 backend = "aqua:release-plz/release-plz"
 specifiers = ["0.4.3"]
+unsupported_platforms = ["macos-x64"]
 
 [tools."aqua:release-plz/release-plz"."platforms.linux-arm64"]
 checksum = "sha256:2cde0ccd8355abb8f710f0173d37fcd2eb216d6d91d81cf340ca6c047a9119c9"
@@ -141,17 +154,13 @@ specifiers = ["tools-v0.1.116"]
 [tools."github:tailrocks/velnor-new".options]
 asset_pattern = "velnor-gen-*-unknown-linux-musl.tar.gz"
 
-[tools."github:tailrocks/velnor-new"."platforms.linux-arm64"]
-checksum = "sha256:87a91845f942e1170c6e26f0213bcdcd364280e03476c54e21cf08bfb89979d4"
-url = "https://github.com/tailrocks/velnor-new/releases/download/tools-v0.1.116/velnor-gen-aarch64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/tailrocks/velnor-new/releases/assets/790583801"
-provenance = "github-attestations"
+[[tools."github:tailrocks/velnor-new"]]
+version = "tools-v0.1.116"
+backend = "github:tailrocks/velnor-new"
+specifiers = ["tools-v0.1.116"]
 
-[tools."github:tailrocks/velnor-new"."platforms.linux-arm64-musl"]
-checksum = "sha256:87a91845f942e1170c6e26f0213bcdcd364280e03476c54e21cf08bfb89979d4"
-url = "https://github.com/tailrocks/velnor-new/releases/download/tools-v0.1.116/velnor-gen-aarch64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/tailrocks/velnor-new/releases/assets/790583801"
-provenance = "github-attestations"
+[tools."github:tailrocks/velnor-new".options]
+asset_pattern = "velnor-gen-x86_64-unknown-linux-musl.tar.gz"
 
 [tools."github:tailrocks/velnor-new"."platforms.linux-x64"]
 checksum = "sha256:debe92a8421c43f8141e394dc722d2f8678f037cebe0a050d865a22c8820a878"
@@ -169,6 +178,7 @@ provenance = "github-attestations"
 version = "2.11.1"
 backend = "packslip:github.com/jdx/hk"
 specifiers = ["2.11.1"]
+unsupported_platforms = ["macos-x64"]
 
 [tools.hk."platforms.linux-arm64"]
 checksum = "sha256:b94d3b405a9e392d0286491693fd22386d3c5be086bf4b8698df33623bfe91a9"
@@ -241,6 +251,12 @@ url = "https://github.com/jdx/jactionlint/releases/download/v2.4.0/jactionlint_2
 signer = "sigstore-oidc:https://github.com/jdx/jactionlint/.github/workflows/release.yaml"
 repository_ids = { repository = "1404951382" }
 
+[tools.jactionlint."platforms.macos-x64"]
+checksum = "sha256:4c21fce834f8267b65a65b32a527aaa2ec1c321c8f066d44b42d7f038835aa90"
+url = "https://github.com/jdx/jactionlint/releases/download/v2.4.0/jactionlint_2.4.0_darwin_amd64.tar.gz"
+signer = "sigstore-oidc:https://github.com/jdx/jactionlint/.github/workflows/release.yaml"
+repository_ids = { repository = "1404951382" }
+
 [tools.jactionlint."platforms.windows-x64"]
 checksum = "sha256:4e0c7b428a4faa35bb3b86af6fa65a0ac9797edcd4c64e4f7e16ca886437e172"
 url = "https://github.com/jdx/jactionlint/releases/download/v2.4.0/jactionlint_2.4.0_windows_amd64.zip"
@@ -251,6 +267,7 @@ repository_ids = { repository = "1404951382" }
 version = "1.29.2"
 backend = "packslip:github.com/jdx/mr-boxington"
 specifiers = ["1.29.2"]
+unsupported_platforms = ["macos-x64"]
 
 [tools.mr-boxington."platforms.linux-arm64"]
 checksum = "sha256:1b6fbaebe0ea2c9b565c862a2b46e4756394ad530ce95b07333743104750a6fb"
@@ -332,6 +349,12 @@ checksum = "sha256:56affdd8de5527894dca6dc3d7e0a99a873b0f004d7aabc30ae407d3f48b0
 checksum_source = "mise-versions"
 url = "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.darwin.aarch64.tar.xz"
 url_api = "https://api.github.com/repos/koalaman/shellcheck/releases/assets/279056932"
+
+[tools.shellcheck."platforms.macos-x64"]
+checksum = "sha256:3c89db4edcab7cf1c27bff178882e0f6f27f7afdf54e859fa041fca10febe4c6"
+checksum_source = "mise-versions"
+url = "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.darwin.x86_64.tar.xz"
+url_api = "https://api.github.com/repos/koalaman/shellcheck/releases/assets/279056930"
 
 [tools.shellcheck."platforms.windows-x64"]
 checksum = "sha256:8a4e35ab0b331c85d73567b12f2a444df187f483e5079ceffa6bda1faa2e740e"
