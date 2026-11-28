@@ -139,7 +139,7 @@ backend = "github:tailrocks/velnor-new"
 specifiers = ["tools-v0.1.116"]
 
 [tools."github:tailrocks/velnor-new".options]
-asset_pattern = "velnor-gen-aarch64-unknown-linux-musl.tar.gz"
+asset_pattern = "velnor-gen-*-unknown-linux-musl.tar.gz"
 
 [tools."github:tailrocks/velnor-new"."platforms.linux-arm64"]
 checksum = "sha256:87a91845f942e1170c6e26f0213bcdcd364280e03476c54e21cf08bfb89979d4"
@@ -152,14 +152,6 @@ checksum = "sha256:87a91845f942e1170c6e26f0213bcdcd364280e03476c54e21cf08bfb8997
 url = "https://github.com/tailrocks/velnor-new/releases/download/tools-v0.1.116/velnor-gen-aarch64-unknown-linux-musl.tar.gz"
 url_api = "https://api.github.com/repos/tailrocks/velnor-new/releases/assets/790583801"
 provenance = "github-attestations"
-
-[[tools."github:tailrocks/velnor-new"]]
-version = "tools-v0.1.116"
-backend = "github:tailrocks/velnor-new"
-specifiers = ["tools-v0.1.116"]
-
-[tools."github:tailrocks/velnor-new".options]
-asset_pattern = "velnor-gen-x86_64-unknown-linux-musl.tar.gz"
 
 [tools."github:tailrocks/velnor-new"."platforms.linux-x64"]
 checksum = "sha256:debe92a8421c43f8141e394dc722d2f8678f037cebe0a050d865a22c8820a878"
