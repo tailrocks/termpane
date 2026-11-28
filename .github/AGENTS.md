@@ -1,12 +1,12 @@
 # Generated GitHub Workflows and Configurations
 
-`velnor-gen` from [tailrocks/velnor-new](https://github.com/tailrocks/velnor-new) owns the workflow files that it generates under `.github/workflows/` (`ci.yml`, `release.yml` and `rust-cache-trim.yml`). Successful generation replaces emitted owned paths and retires owned paths no longer emitted. Do not hand-edit these managed paths; change their inputs and run `velnor-gen --root . generate`. The inputs are `.velnor/rust-ci.toml`, `.velnor/release.toml` and `release-plz.toml`.
+`velnor-gen` from [tailrocks/velnor-new](https://github.com/tailrocks/velnor-new) owns the workflow files that it generates under `.github/workflows/` (`ci.yml` and `rust-cache-trim.yml`). Successful generation replaces emitted owned paths and retires owned paths no longer emitted. Do not hand-edit these managed paths; change their inputs and run `velnor-gen --root . generate`. The input is `.velnor/rust-ci.toml`. Releases are paused ([docs/DECISIONS.md](../docs/DECISIONS.md)), so there is no `.velnor/release.toml` or `release-plz.toml`.
 
 Other existing files and directories under `.github/` are repository-owned and preserved by generation, including empty directories. Put custom files outside `.github/workflows/`, which is reserved for generated workflows.
 
 ## Generation Inputs
 
-- **Keep generation inputs outside `.github/`**: Repository configuration belongs in `.velnor/rust-ci.toml`, `.velnor/release.toml`, workspace manifests, and toolchain settings outside `.github/`.
+- **Keep generation inputs outside `.github/`**: Repository configuration belongs in `.velnor/rust-ci.toml`, workspace manifests, and toolchain settings outside `.github/`.
 - **Regenerate via CLI**: Apply configuration changes by running `velnor-gen --root . generate`, then `velnor-gen --root . check`. The `ci-generated` mise task runs the check.
 
 ## Workflow Issues and Enhancements

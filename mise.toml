@@ -17,7 +17,6 @@ hk = "2.11.1"
 "aqua:EmbarkStudios/cargo-deny" = "0.20.2"
 jactionlint = "2.4.0"
 shellcheck = "0.11.0"
-"aqua:release-plz/release-plz" = "0.4.3"
 # velnor-gen writes the CI workflows. Linux takes the release asset. The
 # release has no macOS asset, so macOS builds the same commit from source.
 # The version here must equal the version in .velnor/rust-ci.lock. `matching`

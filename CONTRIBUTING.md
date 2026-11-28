@@ -52,4 +52,4 @@ rustup run 1.99.0 cargo check --locked
 
 ## Publishing
 
-Releases are prepared and published by `release.yml`, which `velnor-gen` generates from `.velnor/release.toml` and `release-plz.toml`. After a green `CI` run on `main`, release-plz opens a release pull request; merging it tags the release, drafts the GitHub Release and publishes to crates.io through trusted publishing. Do not hand-edit `.github/workflows/`: change the input and run `velnor-gen --root . generate`, then `velnor-gen --root . check` (the `ci-generated` mise task).
+Automated releases are paused ([decision 1](docs/DECISIONS.md)): there is no `release.yml` and no release-plz configuration, and a merge to `main` opens no release pull request, creates no tag and publishes nothing. Do not hand-edit `.github/workflows/`: change `.velnor/rust-ci.toml` and run `velnor-gen --root . generate`, then `velnor-gen --root . check` (the `ci-generated` mise task).

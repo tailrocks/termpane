@@ -96,48 +96,6 @@ checksum_source = "mise-versions"
 url = "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.151/cargo-nextest-0.9.151-x86_64-pc-windows-msvc.tar.gz"
 url_api = "https://api.github.com/repos/nextest-rs/nextest/releases/assets/703606897"
 
-[[tools."aqua:release-plz/release-plz"]]
-version = "0.4.3"
-backend = "aqua:release-plz/release-plz"
-specifiers = ["0.4.3"]
-unsupported_platforms = ["macos-x64"]
-
-[tools."aqua:release-plz/release-plz"."platforms.linux-arm64"]
-checksum = "sha256:2cde0ccd8355abb8f710f0173d37fcd2eb216d6d91d81cf340ca6c047a9119c9"
-checksum_source = "mise-versions"
-url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.4.3/release-plz-aarch64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/701219281"
-
-[tools."aqua:release-plz/release-plz"."platforms.linux-arm64-musl"]
-checksum = "sha256:f9968983da816f30ad8423b5ce7ac93e1e305f913bab6c164b88fbeab434d7cb"
-checksum_source = "mise-versions"
-url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.4.3/release-plz-aarch64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/701215871"
-
-[tools."aqua:release-plz/release-plz"."platforms.linux-x64"]
-checksum = "sha256:f4b0cc404cd9a58cd1b33f49e439bba65186773f63e323ea47f3ea57e557a3d3"
-checksum_source = "mise-versions"
-url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.4.3/release-plz-x86_64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/701209939"
-
-[tools."aqua:release-plz/release-plz"."platforms.linux-x64-musl"]
-checksum = "sha256:4a4cfa92ea2abaee02b40daa596a95ca2725816a6a32cb03a8f48ddead287681"
-checksum_source = "mise-versions"
-url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.4.3/release-plz-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/701216315"
-
-[tools."aqua:release-plz/release-plz"."platforms.macos-arm64"]
-checksum = "sha256:b2c6e636199c7fa9dae8838fbebb49cb99933908eb7dd67f25ec831bb38e1c52"
-checksum_source = "mise-versions"
-url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.4.3/release-plz-aarch64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/701217491"
-
-[tools."aqua:release-plz/release-plz"."platforms.windows-x64"]
-checksum = "sha256:a8597928a5d9e326b3ebfc4b85ed2016ae9765347bc77f12a07ffd267de13eeb"
-checksum_source = "mise-versions"
-url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.4.3/release-plz-x86_64-pc-windows-msvc.tar.gz"
-url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/701226976"
-
 [[tools."cargo:https://github.com/tailrocks/velnor-new"]]
 version = "rev:5e3c38d6eca734106e0f2b0e677f9191be26c012"
 backend = "cargo:https://github.com/tailrocks/velnor-new"
