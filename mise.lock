@@ -84,6 +84,87 @@ checksum_source = "mise-versions"
 url = "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.151/cargo-nextest-0.9.151-x86_64-pc-windows-msvc.tar.gz"
 url_api = "https://api.github.com/repos/nextest-rs/nextest/releases/assets/703606897"
 
+[[tools."aqua:release-plz/release-plz"]]
+version = "0.4.3"
+backend = "aqua:release-plz/release-plz"
+specifiers = ["0.4.3"]
+
+[tools."aqua:release-plz/release-plz"."platforms.linux-arm64"]
+checksum = "sha256:2cde0ccd8355abb8f710f0173d37fcd2eb216d6d91d81cf340ca6c047a9119c9"
+checksum_source = "mise-versions"
+url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.4.3/release-plz-aarch64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/701219281"
+
+[tools."aqua:release-plz/release-plz"."platforms.linux-arm64-musl"]
+checksum = "sha256:f9968983da816f30ad8423b5ce7ac93e1e305f913bab6c164b88fbeab434d7cb"
+checksum_source = "mise-versions"
+url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.4.3/release-plz-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/701215871"
+
+[tools."aqua:release-plz/release-plz"."platforms.linux-x64"]
+checksum = "sha256:f4b0cc404cd9a58cd1b33f49e439bba65186773f63e323ea47f3ea57e557a3d3"
+checksum_source = "mise-versions"
+url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.4.3/release-plz-x86_64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/701209939"
+
+[tools."aqua:release-plz/release-plz"."platforms.linux-x64-musl"]
+checksum = "sha256:4a4cfa92ea2abaee02b40daa596a95ca2725816a6a32cb03a8f48ddead287681"
+checksum_source = "mise-versions"
+url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.4.3/release-plz-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/701216315"
+
+[tools."aqua:release-plz/release-plz"."platforms.macos-arm64"]
+checksum = "sha256:b2c6e636199c7fa9dae8838fbebb49cb99933908eb7dd67f25ec831bb38e1c52"
+checksum_source = "mise-versions"
+url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.4.3/release-plz-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/701217491"
+
+[tools."aqua:release-plz/release-plz"."platforms.windows-x64"]
+checksum = "sha256:a8597928a5d9e326b3ebfc4b85ed2016ae9765347bc77f12a07ffd267de13eeb"
+checksum_source = "mise-versions"
+url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.4.3/release-plz-x86_64-pc-windows-msvc.tar.gz"
+url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/701226976"
+
+[[tools."cargo:https://github.com/tailrocks/velnor-new"]]
+version = "rev:5e3c38d6eca734106e0f2b0e677f9191be26c012"
+backend = "cargo:https://github.com/tailrocks/velnor-new"
+specifiers = ["rev:5e3c38d6eca734106e0f2b0e677f9191be26c012"]
+
+[tools."cargo:https://github.com/tailrocks/velnor-new".options]
+crate = "velnor-gen"
+
+[[tools."github:tailrocks/velnor-new"]]
+version = "tools-v0.1.116"
+backend = "github:tailrocks/velnor-new"
+specifiers = ["tools-v0.1.116"]
+
+[tools."github:tailrocks/velnor-new".options]
+asset_pattern = "velnor-gen-*-unknown-linux-musl.tar.gz"
+
+[tools."github:tailrocks/velnor-new"."platforms.linux-arm64"]
+checksum = "sha256:debe92a8421c43f8141e394dc722d2f8678f037cebe0a050d865a22c8820a878"
+url = "https://github.com/tailrocks/velnor-new/releases/download/tools-v0.1.116/velnor-gen-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/tailrocks/velnor-new/releases/assets/790583845"
+provenance = "github-attestations"
+
+[tools."github:tailrocks/velnor-new"."platforms.linux-arm64-musl"]
+checksum = "sha256:debe92a8421c43f8141e394dc722d2f8678f037cebe0a050d865a22c8820a878"
+url = "https://github.com/tailrocks/velnor-new/releases/download/tools-v0.1.116/velnor-gen-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/tailrocks/velnor-new/releases/assets/790583845"
+provenance = "github-attestations"
+
+[tools."github:tailrocks/velnor-new"."platforms.linux-x64"]
+checksum = "sha256:debe92a8421c43f8141e394dc722d2f8678f037cebe0a050d865a22c8820a878"
+url = "https://github.com/tailrocks/velnor-new/releases/download/tools-v0.1.116/velnor-gen-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/tailrocks/velnor-new/releases/assets/790583845"
+provenance = "github-attestations"
+
+[tools."github:tailrocks/velnor-new"."platforms.linux-x64-musl"]
+checksum = "sha256:debe92a8421c43f8141e394dc722d2f8678f037cebe0a050d865a22c8820a878"
+url = "https://github.com/tailrocks/velnor-new/releases/download/tools-v0.1.116/velnor-gen-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/tailrocks/velnor-new/releases/assets/790583845"
+provenance = "github-attestations"
+
 [[tools.hk]]
 version = "2.11.1"
 backend = "packslip:github.com/jdx/hk"
@@ -124,6 +205,47 @@ checksum = "sha256:60b925d9734cd6bec5fab78b9c825b39b2ad9b1c9d9f03b685423c2d21ae9
 url = "https://github.com/jdx/hk/releases/download/v2.11.1/hk-x86_64-pc-windows-msvc.zip"
 signer = "sigstore-oidc:https://github.com/jdx/hk/.github/workflows/release.yml"
 repository_ids = { repository = "922514152" }
+
+[[tools.jactionlint]]
+version = "2.4.0"
+backend = "packslip:github.com/jdx/jactionlint"
+specifiers = ["2.4.0"]
+
+[tools.jactionlint."platforms.linux-arm64"]
+checksum = "sha256:42413391c248f99ff4550d6c866ee717d5ea4ca2b966d9d54ad1503af955e22f"
+url = "https://github.com/jdx/jactionlint/releases/download/v2.4.0/jactionlint_2.4.0_linux_arm64.tar.gz"
+signer = "sigstore-oidc:https://github.com/jdx/jactionlint/.github/workflows/release.yaml"
+repository_ids = { repository = "1404951382" }
+
+[tools.jactionlint."platforms.linux-arm64-musl"]
+checksum = "sha256:42413391c248f99ff4550d6c866ee717d5ea4ca2b966d9d54ad1503af955e22f"
+url = "https://github.com/jdx/jactionlint/releases/download/v2.4.0/jactionlint_2.4.0_linux_arm64.tar.gz"
+signer = "sigstore-oidc:https://github.com/jdx/jactionlint/.github/workflows/release.yaml"
+repository_ids = { repository = "1404951382" }
+
+[tools.jactionlint."platforms.linux-x64"]
+checksum = "sha256:26ddba81db28fffc51163175c070ee1a9d1150260de4b5232f01d9b749f32d8e"
+url = "https://github.com/jdx/jactionlint/releases/download/v2.4.0/jactionlint_2.4.0_linux_amd64.tar.gz"
+signer = "sigstore-oidc:https://github.com/jdx/jactionlint/.github/workflows/release.yaml"
+repository_ids = { repository = "1404951382" }
+
+[tools.jactionlint."platforms.linux-x64-musl"]
+checksum = "sha256:26ddba81db28fffc51163175c070ee1a9d1150260de4b5232f01d9b749f32d8e"
+url = "https://github.com/jdx/jactionlint/releases/download/v2.4.0/jactionlint_2.4.0_linux_amd64.tar.gz"
+signer = "sigstore-oidc:https://github.com/jdx/jactionlint/.github/workflows/release.yaml"
+repository_ids = { repository = "1404951382" }
+
+[tools.jactionlint."platforms.macos-arm64"]
+checksum = "sha256:349a13dbffdd25376898a256d195806afda08ba97ccc6378cbf2dd11a77ef8e7"
+url = "https://github.com/jdx/jactionlint/releases/download/v2.4.0/jactionlint_2.4.0_darwin_arm64.tar.gz"
+signer = "sigstore-oidc:https://github.com/jdx/jactionlint/.github/workflows/release.yaml"
+repository_ids = { repository = "1404951382" }
+
+[tools.jactionlint."platforms.windows-x64"]
+checksum = "sha256:4e0c7b428a4faa35bb3b86af6fa65a0ac9797edcd4c64e4f7e16ca886437e172"
+url = "https://github.com/jdx/jactionlint/releases/download/v2.4.0/jactionlint_2.4.0_windows_amd64.zip"
+signer = "sigstore-oidc:https://github.com/jdx/jactionlint/.github/workflows/release.yaml"
+repository_ids = { repository = "1404951382" }
 
 [[tools.mr-boxington]]
 version = "1.29.2"
@@ -175,3 +297,44 @@ specifiers = ["1.99.1"]
 components = "clippy,rustfmt"
 profile = "minimal"
 targets = "aarch64-unknown-linux-gnu,x86_64-unknown-linux-gnu"
+
+[[tools.shellcheck]]
+version = "0.11.0"
+backend = "aqua:koalaman/shellcheck"
+specifiers = ["0.11.0"]
+
+[tools.shellcheck."platforms.linux-arm64"]
+checksum = "sha256:12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588"
+checksum_source = "mise-versions"
+url = "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.aarch64.tar.xz"
+url_api = "https://api.github.com/repos/koalaman/shellcheck/releases/assets/279056934"
+
+[tools.shellcheck."platforms.linux-arm64-musl"]
+checksum = "sha256:12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588"
+checksum_source = "mise-versions"
+url = "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.aarch64.tar.xz"
+url_api = "https://api.github.com/repos/koalaman/shellcheck/releases/assets/279056934"
+
+[tools.shellcheck."platforms.linux-x64"]
+checksum = "sha256:8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198"
+checksum_source = "mise-versions"
+url = "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz"
+url_api = "https://api.github.com/repos/koalaman/shellcheck/releases/assets/279056942"
+
+[tools.shellcheck."platforms.linux-x64-musl"]
+checksum = "sha256:8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198"
+checksum_source = "mise-versions"
+url = "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz"
+url_api = "https://api.github.com/repos/koalaman/shellcheck/releases/assets/279056942"
+
+[tools.shellcheck."platforms.macos-arm64"]
+checksum = "sha256:56affdd8de5527894dca6dc3d7e0a99a873b0f004d7aabc30ae407d3f48b0a79"
+checksum_source = "mise-versions"
+url = "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.darwin.aarch64.tar.xz"
+url_api = "https://api.github.com/repos/koalaman/shellcheck/releases/assets/279056932"
+
+[tools.shellcheck."platforms.windows-x64"]
+checksum = "sha256:8a4e35ab0b331c85d73567b12f2a444df187f483e5079ceffa6bda1faa2e740e"
+checksum_source = "mise-versions"
+url = "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.zip"
+url_api = "https://api.github.com/repos/koalaman/shellcheck/releases/assets/279056944"

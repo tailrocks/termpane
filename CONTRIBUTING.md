@@ -52,4 +52,4 @@ rustup run 1.99.0 cargo check --locked
 
 ## Publishing
 
-Releases are published to crates.io **manually only**, via the `publish.yml` workflow (`workflow_dispatch`, requires typing the crate name as confirmation) or a local `cargo publish` by a maintainer. Tag releases `v*`; the `release.yml` workflow reruns the gates and drafts the GitHub Release from the changelog. No automation publishes to crates.io on tag push.
+Releases are prepared and published by `release.yml`, which `velnor-gen` generates from `.velnor/release.toml` and `release-plz.toml`. After a green `CI` run on `main`, release-plz opens a release pull request; merging it tags the release, drafts the GitHub Release and publishes to crates.io through trusted publishing. Do not hand-edit `.github/workflows/`: change the input and run `velnor-gen --root . generate`, then `velnor-gen --root . check` (the `ci-generated` mise task).
