@@ -9,13 +9,14 @@ default_branch = "main"
 docs = "always"
 
 # The transport features are off by default. This lane builds, lints, documents
-# and tests the crate with them on, beside the default-feature build.
+# and tests the crate with them on, beside the default-feature build. It runs in
+# the root job so both builds share one target directory: a parallel lane job
+# compiles every dev-dependency a second time, which the Cache check reports.
 [[test_lane]]
 root = "."
 features = ["process", "pty"]
 lint = true
 doc = true
-job = "parallel"
 
 [[lint]]
 kind = "jactionlint"
