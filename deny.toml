@@ -14,6 +14,8 @@ confidence-threshold = 0.8
 # dependency tree already carries.
 exceptions = [
     { crate = "memchr", allow = ["Unlicense", "MIT"] },
+    # The fuzz harness (a private crate in its own workspace) links libFuzzer.
+    { crate = "libfuzzer-sys", allow = ["MIT", "Apache-2.0", "NCSA"] },
 ]
 
 [licenses.private]
@@ -22,6 +24,8 @@ ignore = true
 [bans]
 multiple-versions = "deny"
 wildcards = "deny"
+# The private fuzz crate depends on the crate under test by path.
+allow-wildcard-paths = true
 deny = [
     { crate = "openssl", reason = "Prefer rustls/aws-lc-rs-backed TLS." },
     { crate = "yaml-rust", reason = "Use serde_yaml_ng for YAML parsing." },
