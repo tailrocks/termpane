@@ -12,7 +12,7 @@ rust = { version = "1.99.1", profile = "minimal", components = [
   "x86_64-unknown-linux-gnu",
 ], mr_boxington = true }
 mr-boxington = { version = "1.29.2", workflow = "release.yml@refs/heads/main" }
-hk = "2.11.1"
+hk = "2.14.0"
 "aqua:nextest-rs/nextest/cargo-nextest" = "0.9.151"
 "aqua:EmbarkStudios/cargo-deny" = "0.20.2"
 jactionlint = "2.4.0"
