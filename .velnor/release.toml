@@ -1,2 +1,3 @@
 roots = ["."]
 after = ["CI"]
+pr_only_checks = ["DCO"]
