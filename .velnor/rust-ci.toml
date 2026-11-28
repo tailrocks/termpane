@@ -1,0 +1,26 @@
+# Generator input for velnor-gen. Run `velnor-gen --root . generate` after a change.
+# Verification runs on the Velnor scale set. A pull request from a fork runs on
+# the GitHub-hosted fork_runner instead.
+runner = "ubuntu-26.04-scale-set"
+hosted = false
+fork_runner = "ubuntu-26.04"
+required_check = "Required"
+default_branch = "main"
+docs = "always"
+
+# The transport features are off by default. This lane builds, lints, documents
+# and tests the crate with them on, beside the default-feature build. It runs in
+# the root job so both builds share one target directory: a parallel lane job
+# compiles every dev-dependency a second time, which the Cache check reports.
+[[test_lane]]
+root = "."
+features = ["process", "pty"]
+lint = true
+doc = true
+
+[[lint]]
+kind = "jactionlint"
+config = ".github/jactionlint.yaml"
+
+[[lint]]
+kind = "generated-check"

@@ -1,0 +1,303 @@
+{
+  "roots": {
+    "Cargo.toml": {
+      "target_dir": "target",
+      "members": [
+        {
+          "name": "termpane",
+          "version": "0.1.1",
+          "manifest": "Cargo.toml",
+          "dependencies": [
+            {
+              "name": "compact_str",
+              "kind": "normal",
+              "manifest": null
+            },
+            {
+              "name": "nix",
+              "kind": "normal",
+              "manifest": null,
+              "features": [
+                "fs",
+                "process",
+                "signal",
+                "user"
+              ],
+              "optional": true
+            },
+            {
+              "name": "portable-pty",
+              "kind": "normal",
+              "manifest": null,
+              "optional": true
+            },
+            {
+              "name": "smallvec",
+              "kind": "normal",
+              "manifest": null
+            },
+            {
+              "name": "unicode-width",
+              "kind": "normal",
+              "manifest": null
+            },
+            {
+              "name": "vte",
+              "kind": "normal",
+              "manifest": null
+            },
+            {
+              "name": "criterion",
+              "kind": "dev",
+              "manifest": null,
+              "features": [
+                "html_reports"
+              ]
+            },
+            {
+              "name": "dhat",
+              "kind": "dev",
+              "manifest": null
+            },
+            {
+              "name": "proptest",
+              "kind": "dev",
+              "manifest": null
+            },
+            {
+              "name": "ratatui-core",
+              "kind": "dev",
+              "manifest": null
+            },
+            {
+              "name": "serde_json",
+              "kind": "dev",
+              "manifest": null
+            }
+          ],
+          "targets": [
+            {
+              "name": "termpane",
+              "kinds": [
+                "lib"
+              ],
+              "tests": true,
+              "doctest": true,
+              "source": "src/lib.rs",
+              "requires_features": false
+            },
+            {
+              "name": "terminal_perf_experiments",
+              "kinds": [
+                "example"
+              ],
+              "tests": false,
+              "doctest": false,
+              "source": "examples/terminal_perf_experiments.rs",
+              "requires_features": false
+            },
+            {
+              "name": "allocation",
+              "kinds": [
+                "test"
+              ],
+              "tests": true,
+              "doctest": false,
+              "source": "tests/allocation.rs",
+              "requires_features": false
+            },
+            {
+              "name": "alt_screen",
+              "kinds": [
+                "test"
+              ],
+              "tests": true,
+              "doctest": false,
+              "source": "tests/alt_screen.rs",
+              "requires_features": false
+            },
+            {
+              "name": "cluster_cap",
+              "kinds": [
+                "test"
+              ],
+              "tests": true,
+              "doctest": false,
+              "source": "tests/cluster_cap.rs",
+              "requires_features": false
+            },
+            {
+              "name": "conformance",
+              "kinds": [
+                "test"
+              ],
+              "tests": true,
+              "doctest": false,
+              "source": "tests/conformance.rs",
+              "requires_features": false
+            },
+            {
+              "name": "csi_counts",
+              "kinds": [
+                "test"
+              ],
+              "tests": true,
+              "doctest": false,
+              "source": "tests/csi_counts.rs",
+              "requires_features": false
+            },
+            {
+              "name": "decstr",
+              "kinds": [
+                "test"
+              ],
+              "tests": true,
+              "doctest": false,
+              "source": "tests/decstr.rs",
+              "requires_features": false
+            },
+            {
+              "name": "hyperlink_cap",
+              "kinds": [
+                "test"
+              ],
+              "tests": true,
+              "doctest": false,
+              "source": "tests/hyperlink_cap.rs",
+              "requires_features": false
+            },
+            {
+              "name": "process",
+              "kinds": [
+                "test"
+              ],
+              "tests": true,
+              "doctest": false,
+              "source": "tests/process.rs",
+              "requires_features": false
+            },
+            {
+              "name": "pty",
+              "kinds": [
+                "test"
+              ],
+              "tests": true,
+              "doctest": false,
+              "source": "tests/pty.rs",
+              "requires_features": false
+            },
+            {
+              "name": "resize",
+              "kinds": [
+                "test"
+              ],
+              "tests": true,
+              "doctest": false,
+              "source": "tests/resize.rs",
+              "requires_features": false
+            },
+            {
+              "name": "serialization_proptest",
+              "kinds": [
+                "test"
+              ],
+              "tests": true,
+              "doctest": false,
+              "source": "tests/serialization_proptest.rs",
+              "requires_features": false
+            },
+            {
+              "name": "session",
+              "kinds": [
+                "test"
+              ],
+              "tests": true,
+              "doctest": false,
+              "source": "tests/session.rs",
+              "requires_features": false
+            },
+            {
+              "name": "present_frame",
+              "kinds": [
+                "bench"
+              ],
+              "tests": false,
+              "doctest": false,
+              "source": "benches/present_frame.rs",
+              "requires_features": false
+            },
+            {
+              "name": "preserve_scrollback",
+              "kinds": [
+                "bench"
+              ],
+              "tests": false,
+              "doctest": false,
+              "source": "benches/preserve_scrollback.rs",
+              "requires_features": false
+            },
+            {
+              "name": "resize_storm",
+              "kinds": [
+                "bench"
+              ],
+              "tests": false,
+              "doctest": false,
+              "source": "benches/resize_storm.rs",
+              "requires_features": false
+            },
+            {
+              "name": "scroll_throughput",
+              "kinds": [
+                "bench"
+              ],
+              "tests": false,
+              "doctest": false,
+              "source": "benches/scroll_throughput.rs",
+              "requires_features": false
+            }
+          ]
+        }
+      ]
+    },
+    "fuzz/Cargo.toml": {
+      "target_dir": "target/velnor-roots/fuzz",
+      "members": [
+        {
+          "name": "termpane-fuzz",
+          "version": "0.0.0",
+          "manifest": "fuzz/Cargo.toml",
+          "dependencies": [
+            {
+              "name": "libfuzzer-sys",
+              "kind": "normal",
+              "manifest": null
+            },
+            {
+              "name": "termpane",
+              "kind": "normal",
+              "manifest": "Cargo.toml"
+            }
+          ],
+          "targets": [
+            {
+              "name": "damage_grid_process",
+              "kinds": [
+                "bin"
+              ],
+              "tests": false,
+              "doctest": false,
+              "source": "fuzz/src/damage_grid_process.rs",
+              "requires_features": false
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "manifests": {
+    "Cargo.toml": "6fc0707e2568b704913c630f8c996419673f97ebf4563fa9f97b8de68497f214",
+    "fuzz/Cargo.toml": "6207fc7ccf75a4a12da5a7e53119cc1c74f385758b7d9dd0e44f0ef14d9f4120"
+  },
+  "layout": "047f4b9d7ef554aeb829c5a2d39a59f02631f036d8e4bba2c58e00ca196b3bc1"
+}

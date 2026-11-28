@@ -8,20 +8,32 @@ yanked = "deny"
 allow = [
     "Apache-2.0",
     "MIT",
+    # The Unicode License v3 (OSI approved, permissive); `unicode-ident`
+    # carries it for its generated tables.
+    "Unicode-3.0",
 ]
 confidence-threshold = 0.8
 # Per-crate exceptions for licenses outside the Apache-2.0/MIT policy that the
 # dependency tree already carries.
 exceptions = [
     { crate = "memchr", allow = ["Unlicense", "MIT"] },
+    # The fuzz harness (a private crate in its own workspace) links libFuzzer.
+    { crate = "libfuzzer-sys", allow = ["MIT", "Apache-2.0", "NCSA"] },
 ]
 
 [licenses.private]
 ignore = true
 
+# Check the graph with every feature on, so the optional `process` and `pty`
+# transports (nix, portable-pty) are policed too, not just the default build.
+[graph]
+all-features = true
+
 [bans]
 multiple-versions = "deny"
 wildcards = "deny"
+# The private fuzz crate depends on the crate under test by path.
+allow-wildcard-paths = true
 deny = [
     { crate = "openssl", reason = "Prefer rustls/aws-lc-rs-backed TLS." },
     { crate = "yaml-rust", reason = "Use serde_yaml_ng for YAML parsing." },
@@ -29,7 +41,17 @@ deny = [
 # Duplicate-version detection is enforced. The skip list is the current
 # transitive duplicate allowlist; new duplicates must either be resolved
 # or added here with rationale.
-skip = []
+skip = [
+    # `portable-pty` 0.9 (the latest release) pins `nix` 0.28; the crate's own
+    # `nix` 0.31 is needed for the safe `posix_spawn` module. The older copy
+    # brings its own build helper `cfg_aliases` 0.1. Remove these three when
+    # `portable-pty` moves to a current `nix`.
+    { crate = "nix@0.28.0", reason = "pinned by portable-pty 0.9; termpane needs nix 0.31 for posix_spawn" },
+    { crate = "cfg_aliases@0.1.1", reason = "build dependency of nix 0.28 (portable-pty)" },
+    # `portable-pty` 0.9 requires `bitflags` 1 for its Windows backend; every
+    # other crate in the graph uses `bitflags` 2.
+    { crate = "bitflags@1.3.2", reason = "Windows-only dependency of portable-pty 0.9" },
+]
 
 [sources]
 unknown-registry = "deny"
